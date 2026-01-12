@@ -60,6 +60,10 @@ pub enum Error {
     /// Deploy error
     #[error("Deploy error: {message}")]
     Deploy { message: String, help: String },
+
+    /// Build error
+    #[error("Build error: {message}")]
+    Build { message: String, help: String },
 }
 
 impl Error {
@@ -119,6 +123,14 @@ impl Error {
     /// Create a deploy error
     pub fn deploy(message: impl Into<String>, help: impl Into<String>) -> Self {
         Self::Deploy {
+            message: message.into(),
+            help: help.into(),
+        }
+    }
+
+    /// Create a build error
+    pub fn build(message: impl Into<String>, help: impl Into<String>) -> Self {
+        Self::Build {
             message: message.into(),
             help: help.into(),
         }
