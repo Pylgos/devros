@@ -3,30 +3,30 @@
 ## Phase 1: コア、環境管理 & 基本ビルド (Core, Env & Basic Build)
 プロジェクトの基盤を構築し、環境変数を適切に管理した上で、ROS 2パッケージ（ament_cmake）を正しくビルドできる状態を目指します。
 
-- [ ] **プロジェクト初期化**:
-    - [ ] `cargo init` (Workspace構成)
-    - [ ] 依存クレート選定 (`clap`, `serde`, `tokio`, `tracing`, `miette` 等)
-    - [ ] CIパイプライン構築 (GitHub Actions)
-- [ ] **設定管理**:
-    - [ ] `devros.toml` / `devros.local.toml` の定義とパース実装
-    - [ ] *Test (Unit)*: 設定ファイルのマージロジック、デフォルト値の検証
-- [ ] **ワークスペース解析**:
-    - [ ] パッケージ探索 (`package.xml` 検出)
-    - [ ] `package.xml` パース
-    - [ ] 依存グラフ構築とトポロジカルソート
-    - [ ] *Test (Unit)*: グラフ構造の検証、循環依存検出
-    - [ ] *Test (Integration)*: `tempfile` で作成したダミー階層での探索テスト
-- [ ] **環境変数管理 (Basic)**:
-    - [ ] `.dsv` ファイルの生成とパース
-    - [ ] 環境変数計算ロジック（In-memory）
-    - [ ] ビルド時の環境変数注入機構
-    - [ ] `devros env shell` コマンド実装 (確認用)
-    - [ ] *Test (Unit)*: `.dsv` パース、環境変数計算ロジックの検証
-- [ ] **ビルド実行 (ament_cmake)**:
-    - [ ] `cmake` コマンドの発行 (計算された環境変数を適用)
-    - [ ] 基本的なビルド・インストールフローの実装
+- [x] **プロジェクト初期化**:
+    - [x] `cargo init` (Workspace構成)
+    - [x] 依存クレート選定 (`clap`, `serde`, `tokio`, `tracing`, `miette` 等)
+    - [x] CIパイプライン構築 (GitHub Actions)
+- [x] **設定管理**:
+    - [x] `devros.toml` / `devros.local.toml` の定義とパース実装
+    - [x] *Test (Unit)*: 設定ファイルのマージロジック、デフォルト値の検証
+- [x] **ワークスペース解析**:
+    - [x] パッケージ探索 (`package.xml` 検出)
+    - [x] `package.xml` パース
+    - [x] 依存グラフ構築とトポロジカルソート
+    - [x] *Test (Unit)*: グラフ構造の検証、循環依存検出
+    - [x] *Test (Integration)*: `tempfile` で作成したダミー階層での探索テスト
+- [x] **環境変数管理 (Basic)**:
+    - [x] `.dsv` ファイルの生成とパース
+    - [x] 環境変数計算ロジック（In-memory）
+    - [x] ビルド時の環境変数注入機構
+    - [x] `devros env shell` コマンド実装 (確認用)
+    - [x] *Test (Unit)*: `.dsv` パース、環境変数計算ロジックの検証
+- [x] **ビルド実行 (ament_cmake)**:
+    - [x] `cmake` コマンドの発行 (計算された環境変数を適用)
+    - [x] 基本的なビルド・インストールフローの実装
     - [ ] `colcon` との互換性検証（最小構成）
-    - [ ] `install/setup.bash` 生成
+    - [x] `install/setup.bash` 生成
     - [ ] *Test (Integration)*: ダミーCMakeパッケージのビルド成功確認
     - [ ] *Test (E2E)*: 実際のROS 2環境でのビルドと `ros2 run` 実行確認
 

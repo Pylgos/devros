@@ -24,4 +24,7 @@ jobs:
         with:
           imageName: ghcr.io/pylgos/devros-devcontainer
           runCmd: |
-            echo hello
+            rustup default stable
+            cargo build --all-targets
+            cargo test
+            cargo clippy -- -D warnings

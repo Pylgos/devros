@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Pylgos/devros"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+quick-xml = { version = "0.37", features = ["serialize"] }
+
+# Async runtime
+tokio = { version = "1.45", features = ["full"] }
+
+# Error handling
+miette = { version = "7.5", features = ["fancy"] }
+thiserror = "2.0"
+
+# Logging / Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+camino = { version = "1.1", features = ["serde1"] }
+walkdir = "2.5"
+petgraph = "0.7"
+tempfile = "3.16"
