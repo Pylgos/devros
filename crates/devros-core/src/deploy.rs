@@ -4,6 +4,9 @@
 //! - Materialization: converting symlink-based install to portable artifacts
 //! - Local deployment: copying materialized artifacts to local directories
 //! - Remote deployment: transferring artifacts via rsync over SSH
+//!
+//! **Note**: This module uses Unix-specific functionality (symlinks, rsync)
+//! and is designed for use on Linux systems as is standard for ROS 2 development.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use chrono::{DateTime, Utc};
@@ -18,12 +21,21 @@ use crate::workspace::Workspace;
 use crate::{Error, Result};
 
 /// Python path patterns that indicate a build-specific absolute path
-/// that should be replaced with a portable shebang
+/// that should be replaced with a portable shebang.
+/// These are matched at the start of the path after "#!" prefix.
 const PYTHON_BUILD_PATH_PATTERNS: &[&str] = &[
-    "/usr/bin/python",
-    "/bin/python",
+    "#!/usr/bin/python",
+    "#!/bin/python",
+    "#!/usr/local/bin/python",
+];
+
+/// Python path patterns (anywhere in shebang) that indicate
+/// a virtual environment that should be replaced
+const PYTHON_VENV_PATTERNS: &[&str] = &[
     "/.venv/",
     "/venv/",
+    "/.virtualenv/",
+    "/virtualenv/",
 ];
 
 /// Deploy state for tracking changes between deployments
@@ -601,12 +613,17 @@ impl<'a> DeployManager<'a> {
                     return Ok(());
                 }
 
-                // Check if it's a build-specific absolute path that should be replaced
-                let should_fix = PYTHON_BUILD_PATH_PATTERNS
+                // Check if it starts with a known system Python path
+                let is_system_python = PYTHON_BUILD_PATH_PATTERNS
+                    .iter()
+                    .any(|pattern| first_line.starts_with(pattern));
+
+                // Check if it's a virtual environment path
+                let is_venv_python = PYTHON_VENV_PATTERNS
                     .iter()
                     .any(|pattern| first_line.contains(pattern));
 
-                if should_fix {
+                if is_system_python || is_venv_python {
                     // Replace with portable shebang
                     let new_content = format!(
                         "#!/usr/bin/env python3\n{}",
