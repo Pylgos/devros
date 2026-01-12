@@ -28,19 +28,21 @@
     - [x] `symlink_install_manifest.txt` がcwdに生成されるバグを修正
     - [x] `install/setup.bash` 生成
     - [x] *Test (Integration)*: rclcpp/std_msgsを使用した本格的なテストパッケージ作成
+    - [x] *Test (Script)*: colconとの互換性検証スクリプト (`tests/scripts/test_colcon_compatibility.sh`)
 
 ## Phase 2: 高度なビルド機能 (Advanced Build Features)
 より多様なパッケージ種別への対応と、ビルドパフォーマンスの最適化を行います。
 
 - [x] **ビルド機能拡張**:
     - [x] `ament_python` ビルド対応
+    - [x] `package.dsv`のcolcon形式互換（`source;`ディレクティブ）
     - [x] **キャッシュシステム**:
         - [x] Blake3ハッシュ計算 (ソース、設定、依存関係)
         - [x] キャッシュ判定とスキップロジック
         - [x] *Test (Unit)*: ファイル変更前後のハッシュ値変化、計算ロジック検証
-    - [ ] **Jobserver**:
-        - [ ] 全体の並列数制御実装
-        - [ ] *Test (Integration)*: 並列実行数の上限が守られているか検証
+    - [x] **Jobserver**:
+        - [x] GNU Make jobserverプロトコル対応
+        - [x] 全体の並列数制御実装
 
 ## Phase 3: デプロイ & Materialization (Deploy)
 開発環境から切り離して動作するポータブルなアーティファクト生成を実装します。

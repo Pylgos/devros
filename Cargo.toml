@@ -37,3 +37,6 @@ petgraph = "0.7"
 tempfile = "3.16"
 blake3 = "1.5"
 chrono = { version = "0.4", features = ["serde"] }
+
+# Jobserver (GNU Make protocol)
+jobserver = "0.1"

@@ -5,6 +5,7 @@ use clap::Args;
 use devros_core::cache::{CacheManager, compute_package_hash};
 use devros_core::package::BuildType;
 use devros_core::workspace::Workspace;
+use jobserver::Client;
 use miette::{IntoDiagnostic, Result};
 use std::collections::HashMap;
 use std::process::Command;
@@ -75,6 +76,27 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
     // Get effective jobs
     let jobs = args.jobs.unwrap_or_else(|| workspace.config.effective_jobs());
 
+    // Initialize jobserver for parallel build control
+    // Try to inherit from parent process first, otherwise create a new one
+    //
+    // SAFETY: `Client::from_env()` is unsafe because it:
+    // 1. Reads MAKEFLAGS/CARGO_MAKEFLAGS environment variables
+    // 2. May open file descriptors based on those values
+    // This is safe here because:
+    // - We are the top-level process controlling the build
+    // - If the env vars are set but invalid, `from_env()` returns None
+    // - We handle the None case by creating a new jobserver
+    // - The jobserver is only used for coordinating parallel cmake builds
+    let jobserver = unsafe { Client::from_env() }
+        .or_else(|| {
+            tracing::debug!("Creating new jobserver with {} jobs", jobs);
+            Client::new(jobs).ok()
+        });
+    
+    if jobserver.is_some() {
+        tracing::info!("Using jobserver with {} parallel jobs", jobs);
+    }
+
     // Initialize cache manager
     let mut cache_manager = CacheManager::new(&workspace.state_dir());
 
@@ -112,7 +134,7 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
 
         let build_result = match package.build_type {
             BuildType::AmentCmake => {
-                build_ament_cmake(&workspace, package, &args, jobs)
+                build_ament_cmake(&workspace, package, &args, jobs, jobserver.as_ref())
             }
             BuildType::AmentPython => {
                 build_ament_python(&workspace, package, &args)
@@ -159,6 +181,7 @@ fn build_ament_cmake(
     package: &devros_core::package::Package,
     args: &BuildArgs,
     jobs: usize,
+    jobserver: Option<&Client>,
 ) -> Result<()> {
     let build_dir = workspace.package_build_dir(&package.name);
     let install_dir = workspace.package_install_dir(&package.name);
@@ -209,13 +232,19 @@ fn build_ament_cmake(
         ));
     }
 
-    // Build
+    // Build with jobserver support
     tracing::debug!("Running cmake build with {} jobs", jobs);
-    let status = Command::new("cmake")
-        .args(["--build", build_dir.as_str(), "--parallel", &jobs.to_string()])
-        .envs(&env)
-        .status()
-        .into_diagnostic()?;
+    let mut build_cmd = Command::new("cmake");
+    build_cmd.args(["--build", build_dir.as_str(), "--parallel", &jobs.to_string()]);
+    build_cmd.envs(&env);
+    
+    // Configure jobserver for the build command
+    if let Some(js) = jobserver {
+        js.configure(&mut build_cmd);
+        tracing::debug!("Configured jobserver for cmake build");
+    }
+    
+    let status = build_cmd.status().into_diagnostic()?;
 
     if !status.success() {
         return Err(miette::miette!("CMake build failed for {}", package.name));
@@ -236,8 +265,8 @@ fn build_ament_cmake(
         return Err(miette::miette!("CMake install failed for {}", package.name));
     }
 
-    // Generate package.dsv and local_setup.sh
-    generate_package_environment_files(workspace, package)?;
+    // Note: CMake/ament_cmake generates package.dsv and local_setup.* files automatically
+    // so we don't need to generate them here.
 
     Ok(())
 }
@@ -289,41 +318,6 @@ fn compute_build_environment(
     }
 
     Ok(calc.env().clone())
-}
-
-/// Generate package environment files (package.dsv and local_setup.sh)
-fn generate_package_environment_files(
-    workspace: &Workspace,
-    package: &devros_core::package::Package,
-) -> Result<()> {
-    use devros_core::dsv::{generate_local_setup_sh, generate_package_dsv};
-
-    let install_dir = workspace.package_install_dir(&package.name);
-    let share_dir = install_dir.join("share").join(&package.name);
-
-    std::fs::create_dir_all(&share_dir).into_diagnostic()?;
-
-    // Generate package.dsv
-    let dsv_content = generate_package_dsv(&package.name, &install_dir);
-    std::fs::write(share_dir.join("package.dsv"), dsv_content).into_diagnostic()?;
-
-    // Generate local_setup.sh
-    let setup_content = generate_local_setup_sh(&package.name);
-    let setup_path = share_dir.join("local_setup.sh");
-    std::fs::write(&setup_path, setup_content).into_diagnostic()?;
-
-    // Make local_setup.sh executable
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&setup_path)
-            .into_diagnostic()?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&setup_path, perms).into_diagnostic()?;
-    }
-
-    Ok(())
 }
 
 /// Generate workspace-level setup.bash
@@ -657,54 +651,61 @@ fn ensure_ament_resource_index(
     Ok(())
 }
 
-/// Generate Python package environment files (package.dsv and local_setup.sh)
+/// Generate Python package environment files (hook files and package.dsv in colcon format)
 fn generate_python_package_environment_files(
     workspace: &Workspace,
     package: &devros_core::package::Package,
 ) -> Result<()> {
     let install_dir = workspace.package_install_dir(&package.name);
     let share_dir = install_dir.join("share").join(&package.name);
+    let hook_dir = share_dir.join("hook");
 
-    std::fs::create_dir_all(&share_dir).into_diagnostic()?;
+    std::fs::create_dir_all(&hook_dir).into_diagnostic()?;
 
-    // Generate package.dsv with Python-specific paths
-    let dsv_content = generate_python_package_dsv(&package.name)?;
-    std::fs::write(share_dir.join("package.dsv"), dsv_content).into_diagnostic()?;
-
-    // Generate local_setup.sh
-    let setup_content = devros_core::dsv::generate_local_setup_sh(&package.name);
-    let setup_path = share_dir.join("local_setup.sh");
-    std::fs::write(&setup_path, setup_content).into_diagnostic()?;
-
-    // Make local_setup.sh executable
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&setup_path)
-            .into_diagnostic()?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&setup_path, perms).into_diagnostic()?;
-    }
-
-    Ok(())
-}
-
-/// Generate package.dsv content for Python packages
-fn generate_python_package_dsv(package_name: &str) -> Result<String> {
+    // Get Python lib directory
     let python_lib_dir = get_python_lib_dir()?;
 
-    let lines = [
-        // AMENT_PREFIX_PATH
-        "prepend-non-duplicate;AMENT_PREFIX_PATH;".to_string(),
-        // PATH for bin directory
-        "prepend-non-duplicate-if-exists;PATH;bin".to_string(),
-        // PYTHONPATH for the Python lib directory
-        format!("prepend-non-duplicate-if-exists;PYTHONPATH;{}", python_lib_dir),
-        // AMENT_CURRENT_PREFIX
-        "set;AMENT_CURRENT_PREFIX;".to_string(),
-    ];
+    // Generate hook/ament_prefix_path.dsv
+    std::fs::write(
+        hook_dir.join("ament_prefix_path.dsv"),
+        "prepend-non-duplicate;AMENT_PREFIX_PATH;\n",
+    )
+    .into_diagnostic()?;
 
-    let _ = package_name; // unused but kept for potential future use
-    Ok(lines.join("\n"))
+    // Generate hook/ament_prefix_path.sh
+    std::fs::write(
+        hook_dir.join("ament_prefix_path.sh"),
+        r#"# generated from colcon style
+ament_prepend_unique_value AMENT_PREFIX_PATH "$AMENT_CURRENT_PREFIX"
+"#,
+    )
+    .into_diagnostic()?;
+
+    // Generate hook/pythonpath.dsv
+    std::fs::write(
+        hook_dir.join("pythonpath.dsv"),
+        format!("prepend-non-duplicate;PYTHONPATH;{}\n", python_lib_dir),
+    )
+    .into_diagnostic()?;
+
+    // Generate hook/pythonpath.sh
+    std::fs::write(
+        hook_dir.join("pythonpath.sh"),
+        format!(
+            r#"# generated from colcon style
+ament_prepend_unique_value PYTHONPATH "$AMENT_CURRENT_PREFIX/{}"
+"#,
+            python_lib_dir
+        ),
+    )
+    .into_diagnostic()?;
+
+    // Generate package.dsv (source-based, colcon format)
+    let package_dsv_content = format!(
+        "source;share/{}/hook/pythonpath.dsv\nsource;share/{}/hook/pythonpath.sh\nsource;share/{}/hook/ament_prefix_path.dsv\nsource;share/{}/hook/ament_prefix_path.sh\n",
+        package.name, package.name, package.name, package.name
+    );
+    std::fs::write(share_dir.join("package.dsv"), package_dsv_content).into_diagnostic()?;
+
+    Ok(())
 }
