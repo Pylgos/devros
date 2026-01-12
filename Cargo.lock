@@ -299,6 +299,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "devros-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "camino",
+ "devros-core",
+ "miette",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
