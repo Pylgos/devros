@@ -268,10 +268,20 @@ fn should_exclude(path: &str) -> bool {
     }
     
     // Exclude binary executables (they differ due to rebuild)
-    if path.contains("/lib/") && !path.contains("python") && !path.ends_with(".so") && !path.contains("/site-packages/") {
-        // Check if it's an executable (not a library or Python file)
-        if !path.ends_with(".cmake") && !path.ends_with(".txt") && !path.contains(".") {
-            return true;
+    // ROS 2 executables are typically in lib/<package_name>/ directories
+    // Pattern: <prefix>/lib/<pkg_name>/<executable_name> (no extension)
+    if let Some(lib_idx) = path.find("/lib/") {
+        let after_lib = &path[lib_idx + 5..]; // Skip "/lib/"
+        // Should have format: <pkg_name>/<executable>
+        if let Some(slash_idx) = after_lib.find('/') {
+            let after_pkg = &after_lib[slash_idx + 1..];
+            // If there's no more slashes and no extension, it's likely an executable
+            if !after_pkg.contains('/') && !after_pkg.contains('.') {
+                // Exclude if not Python-related
+                if !path.contains("python") && !path.contains("site-packages") {
+                    return true;
+                }
+            }
         }
     }
     
