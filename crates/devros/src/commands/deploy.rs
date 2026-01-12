@@ -1,9 +1,9 @@
 //! Deploy command implementation
 
-use camino::Utf8Path;
-use clap::Args;
 use crate::deploy::DeployManager;
 use crate::workspace::Workspace;
+use camino::Utf8Path;
+use clap::Args;
 use miette::{IntoDiagnostic, Result};
 
 /// Arguments for the deploy command

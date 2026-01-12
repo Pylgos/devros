@@ -4,17 +4,55 @@
 //! then compare the outputs to ensure compatibility.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use devros_integration_tests::colcon_compat::{DsvEntries, compare_install_dirs, scan_directory};
+use devros_integration_tests::colcon_compat::{
+    DsvEntries, compare_environment_variables, compare_install_dirs, scan_directory,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Get the path to the integration workspace
-fn integration_ws_path() -> PathBuf {
+/// Get the source path to the integration workspace template
+fn integration_ws_source_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/integration_ws")
         .canonicalize()
         .expect("integration_ws should exist")
+}
+
+/// Copy the integration workspace to a temporary directory for isolated testing.
+/// This allows multiple tests to run in parallel without interfering with each other.
+///
+/// # Returns
+/// Returns a `TempDir` that owns the temporary workspace. The caller must keep this
+/// value alive for the duration of the test, as dropping it will delete the directory.
+fn create_isolated_workspace() -> tempfile::TempDir {
+    let source = integration_ws_source_path();
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
+
+    // Copy the src directory (which contains the ROS packages)
+    let src_source = source.join("src");
+    let src_dest = temp_dir.path().join("src");
+    copy_dir_recursive(&src_source, &src_dest).expect("Failed to copy workspace");
+
+    temp_dir
+}
+
+/// Recursively copy a directory
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Get the path to the devros binary
@@ -54,24 +92,6 @@ fn ros2_env() -> std::collections::HashMap<String, String> {
     }
 
     env
-}
-
-/// Clean workspace directories
-fn clean_workspace(ws_path: &PathBuf) {
-    let dirs_to_remove = [
-        ".devros",
-        "build",
-        "install",
-        "log",
-        "colcon_build",
-        "colcon_install",
-    ];
-    for dir in &dirs_to_remove {
-        let path = ws_path.join(dir);
-        if path.exists() {
-            fs::remove_dir_all(&path).ok();
-        }
-    }
 }
 
 /// Build with colcon and create a dereferenced copy
@@ -118,7 +138,8 @@ fn build_with_devros(
 
 #[test]
 fn test_colcon_compatibility() {
-    let ws_path = integration_ws_path();
+    let temp_workspace = create_isolated_workspace();
+    let ws_path = temp_workspace.path().to_path_buf();
     let devros_binary = devros_binary_path();
     let env = ros2_env();
 
@@ -128,10 +149,7 @@ fn test_colcon_compatibility() {
         return;
     }
 
-    // Clean workspace
-    clean_workspace(&ws_path);
-
-    // Build with both tools
+    // Build with both tools (no need to clean - workspace is fresh)
     let colcon_install = build_with_colcon(&ws_path, &env);
     let devros_install = build_with_devros(&ws_path, &devros_binary, &env);
 
@@ -241,4 +259,50 @@ fn test_directory_scan() {
             "file.txt"
         );
     }
+}
+
+/// Test that environment variables are equivalent between colcon and devros
+///
+/// This test builds the workspace with both tools, sources their setup.bash scripts,
+/// and compares the resulting environment variables. Differences in install directory
+/// paths are normalized and ignored. Only actual functional differences cause failures.
+#[test]
+fn test_environment_variable_compatibility() {
+    let temp_workspace = create_isolated_workspace();
+    let ws_path = temp_workspace.path().to_path_buf();
+    let devros_binary = devros_binary_path();
+    let env = ros2_env();
+
+    // Ensure ROS 2 is available
+    if !env.contains_key("AMENT_PREFIX_PATH") {
+        eprintln!("ROS 2 environment not available, skipping test");
+        return;
+    }
+
+    // Build with both tools (no need to clean - workspace is fresh)
+    let colcon_install = build_with_colcon(&ws_path, &env);
+    let devros_install = build_with_devros(&ws_path, &devros_binary, &env);
+
+    // Compare environment variables
+    let differences = compare_environment_variables(&colcon_install, &devros_install, &env)
+        .expect("Failed to compare environment variables");
+
+    // Print differences for debugging
+    if !differences.is_empty() {
+        eprintln!(
+            "\n=== Environment variable comparison found {} differences ===",
+            differences.len()
+        );
+        for diff in &differences {
+            eprintln!("  - {}", diff);
+        }
+    }
+
+    // The test should pass if there are no significant differences
+    // (differences in install paths are already normalized)
+    assert!(
+        differences.is_empty(),
+        "Environment variable comparison failed with {} differences",
+        differences.len()
+    );
 }

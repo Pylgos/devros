@@ -3,10 +3,11 @@
 //! This module handles building packages that use the ament_python build system.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
 use crate::Result;
+use crate::dsv::{generate_ament_python_package_dsv, write_colcon_marker_file};
 use crate::package::Package;
 use crate::workspace::Workspace;
 
@@ -71,22 +72,10 @@ impl AmentPythonBuilder {
 
         if options.symlink_install {
             // Symlink install mode: use develop command
-            Self::build_develop(
-                package,
-                &build_dir,
-                &install_dir,
-                source_dir,
-                &env,
-            )?;
+            Self::build_develop(package, &build_dir, &install_dir, source_dir, &env)?;
         } else {
             // Standard install mode
-            Self::build_install(
-                package,
-                &build_dir,
-                &install_dir,
-                source_dir,
-                &env,
-            )?;
+            Self::build_install(package, &build_dir, &install_dir, source_dir, &env)?;
         }
 
         // Post-processing: ensure package.xml is installed
@@ -95,8 +84,8 @@ impl AmentPythonBuilder {
         // Ensure ament resource index entry exists
         ensure_ament_resource_index(package, &install_dir)?;
 
-        // Generate package.dsv and local_setup.sh
-        generate_python_package_environment_files(workspace, package)?;
+        // Generate colcon-compatible package.dsv and hook files
+        generate_python_package_environment_files(workspace, package, options.symlink_install)?;
 
         Ok(())
     }
@@ -364,6 +353,7 @@ fn ensure_ament_resource_index(package: &Package, install_dir: &Utf8PathBuf) -> 
 fn generate_python_package_environment_files(
     workspace: &Workspace,
     package: &Package,
+    symlink_install: bool,
 ) -> Result<()> {
     let install_dir = workspace.package_install_dir(&package.name);
     let share_dir = install_dir.join("share").join(&package.name);
@@ -380,11 +370,12 @@ fn generate_python_package_environment_files(
         "prepend-non-duplicate;AMENT_PREFIX_PATH;\n",
     )?;
 
-    // Generate hook/ament_prefix_path.sh
+    // Generate hook/ament_prefix_path.sh (colcon-compatible)
     std::fs::write(
         hook_dir.join("ament_prefix_path.sh"),
-        r#"# generated from colcon style
-ament_prepend_unique_value AMENT_PREFIX_PATH "$AMENT_CURRENT_PREFIX"
+        r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value AMENT_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
 "#,
     )?;
 
@@ -394,22 +385,74 @@ ament_prepend_unique_value AMENT_PREFIX_PATH "$AMENT_CURRENT_PREFIX"
         format!("prepend-non-duplicate;PYTHONPATH;{}\n", python_lib_dir),
     )?;
 
-    // Generate hook/pythonpath.sh
+    // Generate hook/pythonpath.sh (colcon-compatible)
     std::fs::write(
         hook_dir.join("pythonpath.sh"),
         format!(
-            r#"# generated from colcon style
-ament_prepend_unique_value PYTHONPATH "$AMENT_CURRENT_PREFIX/{}"
+            r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value PYTHONPATH "$COLCON_CURRENT_PREFIX/{}"
 "#,
             python_lib_dir
         ),
     )?;
 
-    // Generate package.dsv (source-based, colcon format)
-    let package_dsv_content = format!(
-        "source;share/{}/hook/pythonpath.dsv\nsource;share/{}/hook/pythonpath.sh\nsource;share/{}/hook/ament_prefix_path.dsv\nsource;share/{}/hook/ament_prefix_path.sh\n",
-        package.name, package.name, package.name, package.name
-    );
+    // For symlink install, we also need pythonpath_develop hook
+    if symlink_install {
+        // Generate hook/pythonpath_develop.dsv
+        let build_dir = workspace.package_build_dir(&package.name);
+        std::fs::write(
+            hook_dir.join("pythonpath_develop.dsv"),
+            format!("prepend-non-duplicate;PYTHONPATH;{}\n", build_dir),
+        )?;
+
+        // Generate hook/pythonpath_develop.sh
+        std::fs::write(
+            hook_dir.join("pythonpath_develop.sh"),
+            format!(
+                r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value PYTHONPATH "{}"
+"#,
+                build_dir
+            ),
+        )?;
+    }
+
+    // Get workspace package names for filtering dependencies
+    let workspace_packages: HashSet<String> = workspace.packages.keys().cloned().collect();
+
+    // Get runtime dependencies that are in the workspace
+    let run_deps: Vec<String> = package
+        .run_dependencies()
+        .filter(|dep| workspace_packages.contains(*dep))
+        .map(|s| s.to_string())
+        .collect();
+    let run_deps_refs: Vec<&str> = run_deps.iter().map(|s| s.as_str()).collect();
+
+    // Write colcon marker file
+    write_colcon_marker_file(&install_dir, &package.name, &run_deps_refs)?;
+
+    // Build the list of hooks for package.dsv
+    let mut all_hooks: Vec<String> = vec![
+        format!("share/{}/hook/ament_prefix_path.dsv", package.name),
+        format!("share/{}/hook/ament_prefix_path.sh", package.name),
+        format!("share/{}/hook/pythonpath.dsv", package.name),
+        format!("share/{}/hook/pythonpath.sh", package.name),
+    ];
+
+    // Add pythonpath_develop hooks if using symlink install
+    if symlink_install {
+        all_hooks.push(format!(
+            "share/{}/hook/pythonpath_develop.dsv",
+            package.name
+        ));
+        all_hooks.push(format!("share/{}/hook/pythonpath_develop.sh", package.name));
+    }
+
+    // Generate package.dsv
+    let hook_refs: Vec<&str> = all_hooks.iter().map(|s| s.as_str()).collect();
+    let package_dsv_content = generate_ament_python_package_dsv(&package.name, &hook_refs);
     std::fs::write(share_dir.join("package.dsv"), package_dsv_content)?;
 
     Ok(())
