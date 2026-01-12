@@ -6,7 +6,9 @@
 //! - Dependency graph construction and topological sorting
 //! - Environment variable management (.dsv file handling)
 //! - Build system integration (ament_cmake, ament_python)
+//! - Build cache management
 
+pub mod cache;
 pub mod config;
 pub mod dsv;
 pub mod error;

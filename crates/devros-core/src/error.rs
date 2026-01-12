@@ -67,6 +67,13 @@ pub enum Error {
         message: String,
         help: String,
     },
+
+    /// Cache error
+    #[error("Cache error: {message}")]
+    Cache {
+        message: String,
+        help: String,
+    },
 }
 
 impl Error {
@@ -110,6 +117,14 @@ impl Error {
     /// Create a DSV parsing error
     pub fn dsv_parse(message: impl Into<String>, help: impl Into<String>) -> Self {
         Self::DsvParse {
+            message: message.into(),
+            help: help.into(),
+        }
+    }
+
+    /// Create a cache error
+    pub fn cache(message: impl Into<String>, help: impl Into<String>) -> Self {
+        Self::Cache {
             message: message.into(),
             help: help.into(),
         }
