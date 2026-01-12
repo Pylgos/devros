@@ -288,6 +288,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Get chained prefix paths from COLCON_PREFIX_PATH environment variable
+    /// Note: Uses ':' as separator as per colcon convention (ROS 2 is primarily Linux)
     fn get_chained_prefix_paths() -> Vec<String> {
         std::env::var("COLCON_PREFIX_PATH")
             .unwrap_or_default()

@@ -5,7 +5,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use devros_integration_tests::colcon_compat::{
-    compare_environment_variables, compare_install_dirs, scan_directory, DsvEntries, EnvDifference,
+    compare_environment_variables, compare_install_dirs, scan_directory, DsvEntries,
 };
 use std::fs;
 use std::path::PathBuf;

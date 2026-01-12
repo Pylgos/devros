@@ -98,7 +98,7 @@ pub fn generate_workspace_setup_bash() -> String {
 # paths which were sourced when this file was generated as well as all packages
 # contained in this prefix path.
 
-# a]get build time prefix (if it exists)
+# get build time prefix (if it exists)
 COLCON_CURRENT_PREFIX="$(builtin cd "`dirname "${BASH_SOURCE[0]}"`" > /dev/null && pwd)"
 . "$COLCON_CURRENT_PREFIX/setup.sh"
 "#
