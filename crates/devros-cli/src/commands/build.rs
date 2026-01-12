@@ -40,10 +40,7 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
 
     let workspace = Workspace::discover(workspace_root).into_diagnostic()?;
 
-    tracing::info!(
-        "Found {} packages",
-        workspace.packages.len()
-    );
+    tracing::info!("Found {} packages", workspace.packages.len());
 
     // Determine which packages to build
     let packages_to_build: Vec<_> = if let Some(ref names) = args.packages {
@@ -73,8 +70,15 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
         return Ok(());
     }
 
+    // Create COLCON_IGNORE in workspace build directory
+    let build_dir = workspace.root.join(&workspace.config.workspace.build_dir);
+    std::fs::create_dir_all(&build_dir).into_diagnostic()?;
+    std::fs::File::create(build_dir.join("COLCON_IGNORE")).into_diagnostic()?;
+
     // Get effective jobs
-    let jobs = args.jobs.unwrap_or_else(|| workspace.config.effective_jobs());
+    let jobs = args
+        .jobs
+        .unwrap_or_else(|| workspace.config.effective_jobs());
 
     // Initialize jobserver for parallel build control
     // Try to inherit from parent process first, otherwise create a new one
@@ -87,12 +91,11 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
     // - If the env vars are set but invalid, `from_env()` returns None
     // - We handle the None case by creating a new jobserver
     // - The jobserver is only used for coordinating parallel cmake builds
-    let jobserver = unsafe { Client::from_env() }
-        .or_else(|| {
-            tracing::debug!("Creating new jobserver with {} jobs", jobs);
-            Client::new(jobs).ok()
-        });
-    
+    let jobserver = unsafe { Client::from_env() }.or_else(|| {
+        tracing::debug!("Creating new jobserver with {} jobs", jobs);
+        Client::new(jobs).ok()
+    });
+
     if jobserver.is_some() {
         tracing::info!("Using jobserver with {} parallel jobs", jobs);
     }
@@ -116,8 +119,7 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
             .filter_map(|dep| package_hashes.get(dep).map(|s| s.as_str()))
             .collect();
 
-        let current_hash = compute_package_hash(&package.path, &dep_hashes)
-            .into_diagnostic()?;
+        let current_hash = compute_package_hash(&package.path, &dep_hashes).into_diagnostic()?;
 
         // Check cache (unless force rebuild)
         if !args.force_rebuild
@@ -136,19 +138,13 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
             BuildType::AmentCmake => {
                 build_ament_cmake(&workspace, package, &args, jobs, jobserver.as_ref())
             }
-            BuildType::AmentPython => {
-                build_ament_python(&workspace, package, &args)
-            }
+            BuildType::AmentPython => build_ament_python(&workspace, package, &args),
             BuildType::Cmake => {
                 tracing::warn!("cmake build not yet implemented for {}", package.name);
                 Ok(())
             }
             BuildType::Other(ref t) => {
-                tracing::warn!(
-                    "Unknown build type '{}' for {}, skipping",
-                    t,
-                    package.name
-                );
+                tracing::warn!("Unknown build type '{}' for {}, skipping", t, package.name);
                 Ok(())
             }
         };
@@ -156,12 +152,14 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
         // Update cache based on result
         match build_result {
             Ok(()) => {
-                cache_manager.mark_success(&package.name, current_hash.clone())
+                cache_manager
+                    .mark_success(&package.name, current_hash.clone())
                     .into_diagnostic()?;
                 package_hashes.insert(package.name.clone(), current_hash);
             }
             Err(e) => {
-                cache_manager.mark_failed(&package.name, current_hash)
+                cache_manager
+                    .mark_failed(&package.name, current_hash)
                     .into_diagnostic()?;
                 return Err(e);
             }
@@ -170,6 +168,11 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
 
     // Generate workspace setup.bash
     generate_workspace_setup(&workspace)?;
+
+    // Create COLCON_IGNORE in workspace install directory
+    let install_dir = workspace.root.join(&workspace.config.workspace.install_dir);
+    std::fs::create_dir_all(&install_dir).into_diagnostic()?;
+    std::fs::File::create(install_dir.join("COLCON_IGNORE")).into_diagnostic()?;
 
     tracing::info!("Build complete!");
     Ok(())
@@ -235,15 +238,20 @@ fn build_ament_cmake(
     // Build with jobserver support
     tracing::debug!("Running cmake build with {} jobs", jobs);
     let mut build_cmd = Command::new("cmake");
-    build_cmd.args(["--build", build_dir.as_str(), "--parallel", &jobs.to_string()]);
+    build_cmd.args([
+        "--build",
+        build_dir.as_str(),
+        "--parallel",
+        &jobs.to_string(),
+    ]);
     build_cmd.envs(&env);
-    
+
     // Configure jobserver for the build command
     if let Some(js) = jobserver {
         js.configure(&mut build_cmd);
         tracing::debug!("Configured jobserver for cmake build");
     }
-    
+
     let status = build_cmd.status().into_diagnostic()?;
 
     if !status.success() {
@@ -287,12 +295,14 @@ fn compute_build_environment(
     for dep_name in &workspace.build_order {
         if deps.contains(dep_name.as_str()) {
             let dep_install_dir = workspace.package_install_dir(dep_name);
-            let dsv_path = dep_install_dir.join("share").join(dep_name).join("package.dsv");
+            let dsv_path = dep_install_dir
+                .join("share")
+                .join(dep_name)
+                .join("package.dsv");
 
             if dsv_path.exists() {
                 if let Ok(dsv) = DsvFile::parse(&dsv_path) {
-                    calc.apply_dsv(&dsv, &dep_install_dir)
-                        .into_diagnostic()?;
+                    calc.apply_dsv(&dsv, &dep_install_dir).into_diagnostic()?;
                 }
             } else {
                 // If no DSV file exists yet, at least add to AMENT_PREFIX_PATH
@@ -349,7 +359,10 @@ fn generate_workspace_setup(workspace: &Workspace) -> Result<()> {
 /// Get Python version string (e.g., "3.12")
 fn get_python_version() -> Result<String> {
     let output = Command::new("python3")
-        .args(["-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"])
+        .args([
+            "-c",
+            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+        ])
         .output()
         .into_diagnostic()?;
 
@@ -391,8 +404,11 @@ fn build_ament_python(
 
     // Generate sitecustomize.py to redirect installation
     let sitecustomize_content = generate_sitecustomize(&install_dir)?;
-    std::fs::write(prefix_override.join("sitecustomize.py"), sitecustomize_content)
-        .into_diagnostic()?;
+    std::fs::write(
+        prefix_override.join("sitecustomize.py"),
+        sitecustomize_content,
+    )
+    .into_diagnostic()?;
 
     // Compute environment for this package
     let mut env = compute_build_environment(workspace, package)?;
@@ -404,9 +420,7 @@ fn build_ament_python(
     let existing_pythonpath = env.get("PYTHONPATH").cloned().unwrap_or_default();
     let new_pythonpath = format!(
         "{}:{}:{}",
-        prefix_override,
-        python_lib_path,
-        existing_pythonpath
+        prefix_override, python_lib_path, existing_pythonpath
     );
     env.insert("PYTHONPATH".to_string(), new_pythonpath);
 
@@ -415,10 +429,24 @@ fn build_ament_python(
 
     if args.symlink_install {
         // Symlink install mode: use develop command
-        build_ament_python_develop(workspace, package, &build_dir, &install_dir, source_dir, &env)?;
+        build_ament_python_develop(
+            workspace,
+            package,
+            &build_dir,
+            &install_dir,
+            source_dir,
+            &env,
+        )?;
     } else {
         // Standard install mode
-        build_ament_python_install(workspace, package, &build_dir, &install_dir, source_dir, &env)?;
+        build_ament_python_install(
+            workspace,
+            package,
+            &build_dir,
+            &install_dir,
+            source_dir,
+            &env,
+        )?;
     }
 
     // Post-processing: ensure package.xml is installed
@@ -448,11 +476,14 @@ fn build_ament_python_install(
     let egg_base = build_dir.to_string();
     let status = Command::new("python3")
         .args([
-            "-W", "ignore:setup.py install is deprecated",
-            "-W", "ignore:easy_install command is deprecated",
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
             "setup.py",
             "egg_info",
-            "--egg-base", &egg_base,
+            "--egg-base",
+            &egg_base,
         ])
         .current_dir(source_dir)
         .envs(env)
@@ -460,7 +491,10 @@ fn build_ament_python_install(
         .into_diagnostic()?;
 
     if !status.success() {
-        return Err(miette::miette!("setup.py egg_info failed for {}", package.name));
+        return Err(miette::miette!(
+            "setup.py egg_info failed for {}",
+            package.name
+        ));
     }
 
     // Run build and install
@@ -469,13 +503,19 @@ fn build_ament_python_install(
 
     let status = Command::new("python3")
         .args([
-            "-W", "ignore:setup.py install is deprecated",
-            "-W", "ignore:easy_install command is deprecated",
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
             "setup.py",
-            "build", "--build-base", build_base.as_str(),
+            "build",
+            "--build-base",
+            build_base.as_str(),
             "install",
-            "--prefix", install_dir.as_str(),
-            "--record", install_log.as_str(),
+            "--prefix",
+            install_dir.as_str(),
+            "--record",
+            install_log.as_str(),
             "--single-version-externally-managed",
         ])
         .current_dir(source_dir)
@@ -484,7 +524,10 @@ fn build_ament_python_install(
         .into_diagnostic()?;
 
     if !status.success() {
-        return Err(miette::miette!("setup.py install failed for {}", package.name));
+        return Err(miette::miette!(
+            "setup.py install failed for {}",
+            package.name
+        ));
     }
 
     Ok(())
@@ -509,12 +552,16 @@ fn build_ament_python_develop(
 
     let status = Command::new("python3")
         .args([
-            "-W", "ignore:setup.py install is deprecated",
-            "-W", "ignore:easy_install command is deprecated",
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
             "setup.py",
             "develop",
-            "--prefix", install_dir.as_str(),
-            "--build-directory", build_base.as_str(),
+            "--prefix",
+            install_dir.as_str(),
+            "--build-directory",
+            build_base.as_str(),
             "--editable",
             "--no-deps",
         ])
@@ -524,7 +571,10 @@ fn build_ament_python_develop(
         .into_diagnostic()?;
 
     if !status.success() {
-        return Err(miette::miette!("setup.py develop failed for {}", package.name));
+        return Err(miette::miette!(
+            "setup.py develop failed for {}",
+            package.name
+        ));
     }
 
     Ok(())

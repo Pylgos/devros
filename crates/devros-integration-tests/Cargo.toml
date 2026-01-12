@@ -16,6 +16,8 @@ camino.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
 blake3.workspace = true
+bstr.workspace = true
+similar.workspace = true
 
 # Error handling
 miette.workspace = true
