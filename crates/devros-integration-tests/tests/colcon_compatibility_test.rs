@@ -138,8 +138,8 @@ fn build_with_devros(
 
 #[test]
 fn test_colcon_compatibility() {
-    let temp_workspace = create_isolated_workspace();
-    let ws_path = temp_workspace.path().to_path_buf();
+    let temp_workspace = create_isolated_workspace().keep();
+    let ws_path = temp_workspace;
     let devros_binary = devros_binary_path();
     let env = ros2_env();
 
@@ -160,6 +160,7 @@ fn test_colcon_compatibility() {
     // Print results for debugging
     if !errors.is_empty() {
         eprintln!("\n=== Compatibility test found {} errors ===", errors.len());
+        eprintln!("Workspace path: {}", ws_path.display());
         for error in &errors {
             eprintln!("  - {}", error);
         }
@@ -170,6 +171,8 @@ fn test_colcon_compatibility() {
         "Compatibility test failed with {} errors",
         errors.len()
     );
+
+    std::fs::remove_dir_all(ws_path).unwrap();
 }
 
 #[test]

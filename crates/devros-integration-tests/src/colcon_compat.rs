@@ -213,13 +213,9 @@ pub fn scan_directory(root: &Utf8Path) -> Result<BTreeMap<Utf8PathBuf, FileEntry
 fn should_exclude(path: &str) -> bool {
     // Exclude colcon-specific files at root level
     let colcon_only_files = [
-        ".colcon_install_layout",
         "_local_setup_util_ps1.py",
-        "_local_setup_util_sh.py",
         "local_setup.bash",
-        "local_setup.sh",
         "local_setup.zsh",
-        "setup.sh",
         "setup.zsh",
         "setup.bash", // devros generates its own setup.bash
     ];
@@ -229,23 +225,8 @@ fn should_exclude(path: &str) -> bool {
         }
     }
 
-    // Exclude colcon-core directory
-    if path.contains("colcon-core") {
-        return true;
-    }
-
     // Exclude .ps1 files
     if path.ends_with(".ps1") {
-        return true;
-    }
-
-    // Exclude pythonpath_develop hooks
-    if path.contains("pythonpath_develop") {
-        return true;
-    }
-
-    // Exclude cmake_prefix_path hooks (colcon-specific)
-    if path.contains("cmake_prefix_path") {
         return true;
     }
 
@@ -257,19 +238,18 @@ fn should_exclude(path: &str) -> bool {
         return true;
     }
 
-    // Exclude hook directory for ament_cmake packages (colcon generates extra hooks)
-    // Only compare hooks for ament_python packages
-    if path.contains("/hook/") && !path.contains("example_py") {
-        return true;
-    }
-    if path.contains("/hook") && !path.contains("example_py") {
+    // Exclude pythonpath_develop.sh (colcon generates this, devros doesn't use it)
+    // Note that we still have to compare pythonpath_develop.dsv files
+    if path.ends_with("/pythonpath_develop.sh") {
         return true;
     }
 
-    // Exclude hook .sh files (implementation differs but functionally equivalent)
-    // colcon uses _colcon_prepend_unique_value, devros uses ament_prepend_unique_value
-    if path.contains("/hook/") && path.ends_with(".sh") {
-        return true;
+    // These files may differ in content but are acceptable
+    let acceptable_difference_in_file = ["local_setup.sh", "_local_setup_util_sh.py", "setup.sh"];
+    for f in &acceptable_difference_in_file {
+        if path == *f {
+            return true;
+        }
     }
 
     false
@@ -584,17 +564,11 @@ prepend-non-duplicate;PATH;bin
 
     #[test]
     fn test_should_exclude() {
-        assert!(should_exclude(".colcon_install_layout"));
-        assert!(should_exclude("share/colcon-core/packages/test"));
         assert!(should_exclude("share/pkg/hook/test.ps1"));
         assert!(should_exclude("share/pkg/hook/pythonpath_develop.sh"));
-        assert!(should_exclude("share/pkg/hook/cmake_prefix_path.dsv"));
         assert!(should_exclude("share/pkg/package.bash"));
         assert!(should_exclude("share/pkg/package.sh"));
         assert!(should_exclude("setup.bash"));
-
-        // hook .sh files are excluded (implementation differs)
-        assert!(should_exclude("share/example_py/hook/test.sh"));
 
         // DSV files are not excluded
         assert!(!should_exclude("share/pkg/package.dsv"));
@@ -653,7 +627,7 @@ pub fn compare_environment_variables(
             }
             (Some(c), None) => {
                 // Skip COLCON_PREFIX_PATH - this is expected to differ
-                if key != "COLCON_PREFIX_PATH" && !should_skip_env_key(key) {
+                if !should_skip_env_key(key) {
                     differences.push(EnvDifference::OnlyInColcon {
                         key: key.to_string(),
                         value: c.clone(),
