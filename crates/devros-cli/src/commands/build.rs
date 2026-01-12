@@ -203,11 +203,11 @@ fn build_ament_cmake(
         "-G".to_string(),
         "Unix Makefiles".to_string(),
         format!("-DCMAKE_INSTALL_PREFIX={}", install_dir),
-        format!(
-            "-DCMAKE_BUILD_TYPE={}",
-            workspace.config.build.ament_cmake.build_type
-        ),
     ];
+
+    if let Some(build_type) = &workspace.config.build.ament_cmake.build_type {
+        cmake_args.push(format!("-DCMAKE_BUILD_TYPE={}", build_type));
+    }
 
     // Add symlink install flag
     if args.symlink_install {
