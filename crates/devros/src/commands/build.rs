@@ -1,12 +1,11 @@
 //! Build command implementation
 //!
 //! This module provides the CLI interface for building packages.
-//! The actual build logic is delegated to devros-core.
 
 use camino::Utf8Path;
 use clap::Args;
-use devros_core::build::{BuildArgs as CoreBuildArgs, Builder};
-use devros_core::workspace::Workspace;
+use crate::build::{BuildArgs as CoreBuildArgs, Builder};
+use crate::workspace::Workspace;
 use jobserver::Client;
 use miette::{IntoDiagnostic, Result};
 

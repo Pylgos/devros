@@ -2,8 +2,8 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand};
-use devros_core::dsv::{DsvFile, EnvCalculator, ShellType};
-use devros_core::workspace::Workspace;
+use crate::dsv::{DsvFile, EnvCalculator, ShellType};
+use crate::workspace::Workspace;
 use miette::{IntoDiagnostic, Result};
 use walkdir::WalkDir;
 

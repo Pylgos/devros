@@ -1,6 +1,6 @@
-//! devros-core - Core library for devros
+//! devros - ROS 2 workflow management tool
 //!
-//! This crate provides the core functionality for devros, including:
+//! This crate provides both a library and CLI for devros, including:
 //! - Configuration file parsing and merging
 //! - Workspace analysis (package discovery, package.xml parsing)
 //! - Dependency graph construction and topological sorting
@@ -11,6 +11,7 @@
 
 pub mod build;
 pub mod cache;
+pub mod commands;
 pub mod config;
 pub mod deploy;
 pub mod dsv;

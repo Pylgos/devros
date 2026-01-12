@@ -277,27 +277,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "devros-cli"
-version = "0.1.0"
-dependencies = [
- "camino",
- "clap",
- "devros-core",
- "jobserver",
- "miette",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "walkdir",
-]
-
-[[package]]
-name = "devros-core"
+name = "devros"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "camino",
  "chrono",
+ "clap",
  "jobserver",
  "miette",
  "petgraph",
@@ -306,8 +292,10 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
  "toml",
  "tracing",
+ "tracing-subscriber",
  "walkdir",
 ]
 
@@ -318,7 +306,7 @@ dependencies = [
  "blake3",
  "bstr",
  "camino",
- "devros-core",
+ "devros",
  "miette",
  "serde",
  "serde_json",

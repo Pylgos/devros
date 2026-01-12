@@ -1,4 +1,4 @@
-//! Error types for devros-core
+//! Error types for devros
 
 // This warning is a false positive from thiserror macro expansion
 #![allow(unused_assignments)]
@@ -9,7 +9,7 @@ use thiserror::Error;
 /// Result type alias for devros operations
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Main error type for devros-core
+/// Main error type for devros
 #[derive(Debug, Error, Diagnostic)]
 #[allow(clippy::enum_variant_names)]
 pub enum Error {
