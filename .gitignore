@@ -28,6 +28,7 @@ tests/integration_ws/install/
 tests/integration_ws/log/
 tests/integration_ws/colcon_build/
 tests/integration_ws/colcon_install/
+tests/integration_ws/.devros/
 
 # Python cache
 **/__pycache__/
