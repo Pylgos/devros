@@ -3,7 +3,7 @@
 //! This module handles building packages that use the ament_cmake build system.
 
 use camino::Utf8PathBuf;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::Command;
 
 use crate::Result;
@@ -187,15 +187,9 @@ impl AmentCmakeBuilder {
     fn generate_colcon_files(workspace: &Workspace, package: &Package) -> Result<()> {
         let install_dir = workspace.package_install_dir(&package.name);
 
-        // Get workspace package names for filtering dependencies
-        let workspace_packages: HashSet<String> = workspace.packages.keys().cloned().collect();
-
-        // Get runtime dependencies that are in the workspace
-        let run_deps: Vec<String> = package
-            .run_dependencies()
-            .filter(|dep| workspace_packages.contains(*dep))
-            .map(|s| s.to_string())
-            .collect();
+        // Get all runtime dependencies (including system packages)
+        // The colcon marker file needs all dependencies, not just workspace packages
+        let run_deps: Vec<String> = package.run_dependencies().map(|s| s.to_string()).collect();
         let run_deps_refs: Vec<&str> = run_deps.iter().map(|s| s.as_str()).collect();
 
         // Write colcon marker file

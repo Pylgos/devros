@@ -3,7 +3,7 @@
 //! This module handles building packages that use the ament_python build system.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::Command;
 
 use crate::Result;
@@ -397,18 +397,22 @@ _colcon_prepend_unique_value PYTHONPATH "$COLCON_CURRENT_PREFIX/{}"
         ),
     )?;
 
-    // For symlink install, we also need pythonpath_develop hook
+    // For symlink install, we need pythonpath_develop hook in build directory
+    // (following colcon's behavior)
     if symlink_install {
-        // Generate hook/pythonpath_develop.dsv
         let build_dir = workspace.package_build_dir(&package.name);
+        let build_hook_dir = build_dir.join("share").join(&package.name).join("hook");
+        std::fs::create_dir_all(&build_hook_dir)?;
+
+        // Generate hook/pythonpath_develop.dsv in build directory
         std::fs::write(
-            hook_dir.join("pythonpath_develop.dsv"),
+            build_hook_dir.join("pythonpath_develop.dsv"),
             format!("prepend-non-duplicate;PYTHONPATH;{}\n", build_dir),
         )?;
 
-        // Generate hook/pythonpath_develop.sh
+        // Generate hook/pythonpath_develop.sh in build directory
         std::fs::write(
-            hook_dir.join("pythonpath_develop.sh"),
+            build_hook_dir.join("pythonpath_develop.sh"),
             format!(
                 r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
 
@@ -419,15 +423,9 @@ _colcon_prepend_unique_value PYTHONPATH "{}"
         )?;
     }
 
-    // Get workspace package names for filtering dependencies
-    let workspace_packages: HashSet<String> = workspace.packages.keys().cloned().collect();
-
-    // Get runtime dependencies that are in the workspace
-    let run_deps: Vec<String> = package
-        .run_dependencies()
-        .filter(|dep| workspace_packages.contains(*dep))
-        .map(|s| s.to_string())
-        .collect();
+    // Get all runtime dependencies (including system packages)
+    // The colcon marker file needs all dependencies, not just workspace packages
+    let run_deps: Vec<String> = package.run_dependencies().map(|s| s.to_string()).collect();
     let run_deps_refs: Vec<&str> = run_deps.iter().map(|s| s.as_str()).collect();
 
     // Write colcon marker file
@@ -442,12 +440,18 @@ _colcon_prepend_unique_value PYTHONPATH "{}"
     ];
 
     // Add pythonpath_develop hooks if using symlink install
+    // These hooks are in the build directory, so we use relative paths
     if symlink_install {
+        // From install/<pkg>/ to build/<pkg>/share/<pkg>/hook/
+        // Relative path: ../../build/<pkg>/share/<pkg>/hook/
         all_hooks.push(format!(
-            "share/{}/hook/pythonpath_develop.dsv",
-            package.name
+            "../../{}/{}/share/{}/hook/pythonpath_develop.dsv",
+            workspace.config.workspace.build_dir, package.name, package.name
         ));
-        all_hooks.push(format!("share/{}/hook/pythonpath_develop.sh", package.name));
+        all_hooks.push(format!(
+            "../../{}/{}/share/{}/hook/pythonpath_develop.sh",
+            workspace.config.workspace.build_dir, package.name, package.name
+        ));
     }
 
     // Generate package.dsv
