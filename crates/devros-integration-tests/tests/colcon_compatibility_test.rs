@@ -21,6 +21,10 @@ fn integration_ws_source_path() -> PathBuf {
 
 /// Copy the integration workspace to a temporary directory for isolated testing.
 /// This allows multiple tests to run in parallel without interfering with each other.
+///
+/// # Returns
+/// Returns a `TempDir` that owns the temporary workspace. The caller must keep this
+/// value alive for the duration of the test, as dropping it will delete the directory.
 fn create_isolated_workspace() -> tempfile::TempDir {
     let source = integration_ws_source_path();
     let temp_dir = tempfile::tempdir().expect("Failed to create temp directory");
