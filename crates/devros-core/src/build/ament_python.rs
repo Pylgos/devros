@@ -72,7 +72,6 @@ impl AmentPythonBuilder {
         if options.symlink_install {
             // Symlink install mode: use develop command
             Self::build_develop(
-                workspace,
                 package,
                 &build_dir,
                 &install_dir,
@@ -82,7 +81,6 @@ impl AmentPythonBuilder {
         } else {
             // Standard install mode
             Self::build_install(
-                workspace,
                 package,
                 &build_dir,
                 &install_dir,
@@ -105,7 +103,6 @@ impl AmentPythonBuilder {
 
     /// Build ament_python package using setup.py install (non-symlink mode)
     fn build_install(
-        _workspace: &Workspace,
         package: &Package,
         build_dir: &Utf8PathBuf,
         install_dir: &Utf8PathBuf,
@@ -173,7 +170,6 @@ impl AmentPythonBuilder {
 
     /// Build ament_python package using setup.py develop (symlink mode)
     fn build_develop(
-        _workspace: &Workspace,
         package: &Package,
         build_dir: &Utf8PathBuf,
         install_dir: &Utf8PathBuf,

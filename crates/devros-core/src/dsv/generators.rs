@@ -3,7 +3,11 @@
 use camino::Utf8Path;
 
 /// Generate package.dsv content for a package
-pub fn generate_package_dsv(_package_name: &str, _prefix: &Utf8Path) -> String {
+///
+/// Note: The `package_name` and `prefix` parameters are reserved for future use
+/// when per-package DSV customization is implemented.
+#[allow(unused_variables)]
+pub fn generate_package_dsv(package_name: &str, prefix: &Utf8Path) -> String {
     let lines = vec![
         // AMENT_PREFIX_PATH
         "prepend-non-duplicate;AMENT_PREFIX_PATH;".to_string(),

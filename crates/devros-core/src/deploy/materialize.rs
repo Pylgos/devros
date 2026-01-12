@@ -83,7 +83,7 @@ impl Materializer {
     /// Handle a symlink during materialization
     fn handle_symlink(
         src_path: &Utf8Path,
-        dst_path: &Utf8PathBuf,
+        dst_path: &Utf8Path,
         staging_dir: &Utf8Path,
         install_base: &Utf8Path,
     ) -> Result<()> {
