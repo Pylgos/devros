@@ -225,9 +225,8 @@ fn should_ignore(entry: &walkdir::DirEntry, patterns: &[&str]) -> bool {
     let file_name = entry.file_name().to_string_lossy();
 
     for pattern in patterns {
-        if pattern.starts_with('*') {
+        if let Some(suffix) = pattern.strip_prefix('*') {
             // Simple suffix matching
-            let suffix = &pattern[1..];
             if file_name.ends_with(suffix) {
                 return true;
             }

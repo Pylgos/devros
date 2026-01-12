@@ -98,14 +98,14 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
             .into_diagnostic()?;
 
         // Check cache (unless force rebuild)
-        if !args.force_rebuild {
-            if !cache_manager.needs_rebuild(&package.name, &current_hash)
-                .into_diagnostic()? 
-            {
-                tracing::info!("Skipping {} (up to date)", package.name);
-                package_hashes.insert(package.name.clone(), current_hash);
-                continue;
-            }
+        if !args.force_rebuild
+            && !cache_manager
+                .needs_rebuild(&package.name, &current_hash)
+                .into_diagnostic()?
+        {
+            tracing::info!("Skipping {} (up to date)", package.name);
+            package_hashes.insert(package.name.clone(), current_hash);
+            continue;
         }
 
         tracing::info!("Building {} ({})", package.name, package.build_type);
@@ -694,7 +694,7 @@ fn generate_python_package_environment_files(
 fn generate_python_package_dsv(package_name: &str) -> Result<String> {
     let python_lib_dir = get_python_lib_dir()?;
 
-    let lines = vec![
+    let lines = [
         // AMENT_PREFIX_PATH
         "prepend-non-duplicate;AMENT_PREFIX_PATH;".to_string(),
         // PATH for bin directory
