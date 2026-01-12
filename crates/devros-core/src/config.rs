@@ -68,7 +68,7 @@ pub struct BuildConfig {
 }
 
 /// ament_cmake specific build configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AmentCmakeConfig {
     /// CMAKE_BUILD_TYPE (default: "RelWithDebInfo")
@@ -82,16 +82,6 @@ pub struct AmentCmakeConfig {
     /// Export compile_commands.json (default: false)
     #[serde(default)]
     pub export_compile_commands: bool,
-}
-
-impl Default for AmentCmakeConfig {
-    fn default() -> Self {
-        Self {
-            build_type: None,
-            cmake_args: Vec::new(),
-            export_compile_commands: false,
-        }
-    }
 }
 
 /// Deploy target configuration
@@ -274,7 +264,10 @@ export_compile_commands = true
         assert_eq!(config.workspace.build_dir, Utf8PathBuf::from("build"));
         assert_eq!(config.build.skip_packages, vec!["pkg_a", "pkg_b"]);
         assert_eq!(config.build.jobs, Some(8));
-        assert_eq!(config.build.ament_cmake.build_type, None);
+        assert_eq!(
+            config.build.ament_cmake.build_type,
+            Some("Release".to_string())
+        );
         assert_eq!(config.build.ament_cmake.cmake_args, vec!["-DFOO=1"]);
         assert!(config.build.ament_cmake.export_compile_commands);
     }
@@ -313,7 +306,10 @@ cmake_args = ["-DBAR=2"]
         assert_eq!(merged.build.skip_packages, vec!["pkg_a", "pkg_b"]);
 
         // build_type should be from base (local didn't define it)
-        assert_eq!(merged.build.ament_cmake.build_type, None);
+        assert_eq!(
+            merged.build.ament_cmake.build_type,
+            Some("Release".to_string())
+        );
 
         // cmake_args is an array, so local replaces base completely
         assert_eq!(merged.build.ament_cmake.cmake_args, vec!["-DBAR=2"]);

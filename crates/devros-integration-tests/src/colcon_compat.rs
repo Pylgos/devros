@@ -442,7 +442,7 @@ pub fn compare_install_dirs(
 
                                 errors.push(ComparisonError::ContentMismatch {
                                     path: path.to_string(),
-                                    details: details,
+                                    details,
                                 });
                             }
                         }
