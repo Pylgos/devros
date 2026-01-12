@@ -134,9 +134,9 @@ pub fn generate_local_setup_util_py() -> String {
 /// This marker file indicates the install layout used (isolated or merged).
 pub fn generate_colcon_install_layout(merged: bool) -> String {
     if merged {
-        "merged".to_string()
+        "merged\n".to_string()
     } else {
-        "isolated".to_string()
+        "isolated\n".to_string()
     }
 }
 
