@@ -2,9 +2,11 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Args;
+use devros_core::cache::{CacheManager, compute_package_hash};
 use devros_core::package::BuildType;
 use devros_core::workspace::Workspace;
 use miette::{IntoDiagnostic, Result};
+use std::collections::HashMap;
 use std::process::Command;
 
 /// Arguments for the build command
@@ -25,6 +27,10 @@ pub struct BuildArgs {
     /// Dry run - show what would be built
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Force rebuild even if cache is valid
+    #[arg(long)]
+    pub force_rebuild: bool,
 }
 
 /// Run the build command
@@ -69,6 +75,12 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
     // Get effective jobs
     let jobs = args.jobs.unwrap_or_else(|| workspace.config.effective_jobs());
 
+    // Initialize cache manager
+    let mut cache_manager = CacheManager::new(&workspace.state_dir());
+
+    // Store computed hashes for dependency calculation
+    let mut package_hashes: HashMap<String, String> = HashMap::new();
+
     // Build each package
     for package_name in packages_to_build {
         let package = workspace
@@ -76,17 +88,38 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
             .get(package_name)
             .ok_or_else(|| miette::miette!("Package not found: {}", package_name))?;
 
+        // Compute hash for this package
+        let dep_hashes: Vec<&str> = package
+            .build_order_dependencies()
+            .filter_map(|dep| package_hashes.get(dep).map(|s| s.as_str()))
+            .collect();
+
+        let current_hash = compute_package_hash(&package.path, &dep_hashes)
+            .into_diagnostic()?;
+
+        // Check cache (unless force rebuild)
+        if !args.force_rebuild {
+            if !cache_manager.needs_rebuild(&package.name, &current_hash)
+                .into_diagnostic()? 
+            {
+                tracing::info!("Skipping {} (up to date)", package.name);
+                package_hashes.insert(package.name.clone(), current_hash);
+                continue;
+            }
+        }
+
         tracing::info!("Building {} ({})", package.name, package.build_type);
 
-        match package.build_type {
+        let build_result = match package.build_type {
             BuildType::AmentCmake => {
-                build_ament_cmake(&workspace, package, &args, jobs)?;
+                build_ament_cmake(&workspace, package, &args, jobs)
             }
             BuildType::AmentPython => {
-                build_ament_python(&workspace, package, &args)?;
+                build_ament_python(&workspace, package, &args)
             }
             BuildType::Cmake => {
                 tracing::warn!("cmake build not yet implemented for {}", package.name);
+                Ok(())
             }
             BuildType::Other(ref t) => {
                 tracing::warn!(
@@ -94,6 +127,21 @@ pub fn run(workspace_root: &Utf8Path, args: BuildArgs) -> Result<()> {
                     t,
                     package.name
                 );
+                Ok(())
+            }
+        };
+
+        // Update cache based on result
+        match build_result {
+            Ok(()) => {
+                cache_manager.mark_success(&package.name, current_hash.clone())
+                    .into_diagnostic()?;
+                package_hashes.insert(package.name.clone(), current_hash);
+            }
+            Err(e) => {
+                cache_manager.mark_failed(&package.name, current_hash)
+                    .into_diagnostic()?;
+                return Err(e);
             }
         }
     }
