@@ -18,7 +18,7 @@ jobs:
 
     container:
       image: ghcr.io/pylgos/devros-devcontainer:latest
-      options: --user root:root
+      options: --user runner:runner --volume /home/runner:/home/runner --cap-add=NET_ADMIN --cap-add=NET_RAW
 
     # Set the permissions to the lowest permissions possible needed for your steps.
     # Copilot will be given its own token for its operations.
@@ -37,10 +37,3 @@ jobs:
 
       - name: Mark repository as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Workaround for Copilot
-        shell: bash
-        run: |
-          cp -a /home/runner/work/_temp/* /__w/_temp
-          rm -rf /home/runner/work/_temp
-          ln -sf /__w/_temp /home/runner/work/_temp

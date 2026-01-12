@@ -38,6 +38,18 @@ RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygi
   tar xf lazygit.tar.gz lazygit && \
   install lazygit -D -t /usr/local/bin/
 
+# runner user similar to hosted runners
+RUN set -eux; \
+    adduser --disabled-password --gecos "" --uid 1001 runner && \
+    groupadd docker --gid 123 && \
+    usermod -aG sudo runner && \
+    usermod -aG docker runner && \
+    echo "%sudo ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers && \
+    echo "Defaults env_keep += \"DEBIAN_FRONTEND\"" >> /etc/sudoers
+
+ENV CONTAINER=true
+WORKDIR /home/runner
+
 USER ubuntu
 
 # Install Rust with rustup
