@@ -28,37 +28,30 @@ pub fn run(workspace_root: &Utf8Path, args: DeployArgs) -> Result<()> {
     let workspace = Workspace::discover(workspace_root).into_diagnostic()?;
 
     // Get deploy target configuration
-    let target_config = workspace
-        .config
-        .deploy
-        .get(&args.target)
-        .ok_or_else(|| {
-            miette::miette!(
-                "Deploy target '{}' not found in devros.toml\n\nAvailable targets: {}",
-                args.target,
-                if workspace.config.deploy.is_empty() {
-                    "(none configured)".to_string()
-                } else {
-                    workspace
-                        .config
-                        .deploy
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }
-            )
-        })?;
+    let target_config = workspace.config.deploy.get(&args.target).ok_or_else(|| {
+        miette::miette!(
+            "Deploy target '{}' not found in devros.toml\n\nAvailable targets: {}",
+            args.target,
+            if workspace.config.deploy.is_empty() {
+                "(none configured)".to_string()
+            } else {
+                workspace
+                    .config
+                    .deploy
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        )
+    })?;
 
     // Determine which packages to deploy
     let packages_to_deploy: Vec<String> = if let Some(ref pkgs) = args.packages {
         // Validate that all requested packages exist
         for pkg in pkgs {
             if !workspace.packages.contains_key(pkg) {
-                return Err(miette::miette!(
-                    "Package '{}' not found in workspace",
-                    pkg
-                ));
+                return Err(miette::miette!("Package '{}' not found in workspace", pkg));
             }
         }
         pkgs.clone()
@@ -110,10 +103,7 @@ pub fn run(workspace_root: &Utf8Path, args: DeployArgs) -> Result<()> {
     if changed_packages.is_empty() {
         tracing::info!("No packages changed since last deployment");
     } else {
-        tracing::info!(
-            "Changed packages: {}",
-            changed_packages.join(", ")
-        );
+        tracing::info!("Changed packages: {}", changed_packages.join(", "));
     }
 
     tracing::info!("Deployment complete!");

@@ -31,12 +31,7 @@ const PYTHON_BUILD_PATH_PATTERNS: &[&str] = &[
 
 /// Python path patterns (anywhere in shebang) that indicate
 /// a virtual environment that should be replaced
-const PYTHON_VENV_PATTERNS: &[&str] = &[
-    "/.venv/",
-    "/venv/",
-    "/.virtualenv/",
-    "/virtualenv/",
-];
+const PYTHON_VENV_PATTERNS: &[&str] = &["/.venv/", "/venv/", "/.virtualenv/", "/virtualenv/"];
 
 /// Deploy state for tracking changes between deployments
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,10 +104,7 @@ impl<'a> DeployManager<'a> {
 
     /// Get the staging directory for a target
     pub fn staging_dir(&self, target_name: &str) -> Utf8PathBuf {
-        self.workspace
-            .state_dir()
-            .join("staging")
-            .join(target_name)
+        self.workspace.state_dir().join("staging").join(target_name)
     }
 
     /// Get the deploy state file path for a target
@@ -144,13 +136,14 @@ impl<'a> DeployManager<'a> {
                 (None, _) => true,
                 // No current hash (not built) - skip
                 (_, None) => {
-                    tracing::warn!(package = package_name, "Package has no build hash, skipping");
+                    tracing::warn!(
+                        package = package_name,
+                        "Package has no build hash, skipping"
+                    );
                     continue;
                 }
                 // Compare hashes
-                (Some(state), Some(hash)) => {
-                    state.packages.get(package_name) != Some(hash)
-                }
+                (Some(state), Some(hash)) => state.packages.get(package_name) != Some(hash),
             };
 
             if is_changed {
@@ -168,24 +161,26 @@ impl<'a> DeployManager<'a> {
     /// 2. Resolving symlinks (dereferencing external links)
     /// 3. Freezing Python packages
     /// 4. Generating environment setup scripts
-    pub fn materialize(
-        &self,
-        target_name: &str,
-        packages: &[String],
-    ) -> Result<Utf8PathBuf> {
+    pub fn materialize(&self, target_name: &str, packages: &[String]) -> Result<Utf8PathBuf> {
         let staging_dir = self.staging_dir(target_name);
         tracing::info!("Materializing to {}", staging_dir);
 
         // Create staging directory
         std::fs::create_dir_all(&staging_dir)?;
 
-        let install_base = self.workspace.root.join(&self.workspace.config.workspace.install_dir);
+        let install_base = self
+            .workspace
+            .root
+            .join(&self.workspace.config.workspace.install_dir);
 
         // Merge packages in dependency order
         for package_name in packages {
             let package_install = install_base.join(package_name);
             if !package_install.exists() {
-                tracing::warn!(package = package_name, "Install directory not found, skipping");
+                tracing::warn!(
+                    package = package_name,
+                    "Install directory not found, skipping"
+                );
                 continue;
             }
 
@@ -279,7 +274,10 @@ impl<'a> DeployManager<'a> {
             // Get the parent directory of the symlink
             let parent = src_path.parent().ok_or_else(|| {
                 Error::deploy(
-                    format!("Cannot resolve relative symlink without parent directory: {}", src_path),
+                    format!(
+                        "Cannot resolve relative symlink without parent directory: {}",
+                        src_path
+                    ),
                     "This is an unexpected path structure",
                 )
             })?;
@@ -307,7 +305,10 @@ impl<'a> DeployManager<'a> {
             // Internal link - create relative symlink
             let rel_from_staging = absolute_target.strip_prefix(install_base).map_err(|_| {
                 Error::deploy(
-                    format!("Failed to strip install base prefix from {}", absolute_target),
+                    format!(
+                        "Failed to strip install base prefix from {}",
+                        absolute_target
+                    ),
                     "This is likely a bug in devros",
                 )
             })?;
@@ -377,11 +378,13 @@ impl<'a> DeployManager<'a> {
             // Look for pythonX.Y directories
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name.starts_with("python") {
-                    let site_packages = Utf8PathBuf::try_from(path.join("site-packages"))
-                        .map_err(|e| Error::deploy(
-                            format!("Path is not valid UTF-8: {:?}", e),
-                            "Ensure all file paths contain only valid UTF-8 characters"
-                        ))?;
+                    let site_packages =
+                        Utf8PathBuf::try_from(path.join("site-packages")).map_err(|e| {
+                            Error::deploy(
+                                format!("Path is not valid UTF-8: {:?}", e),
+                                "Ensure all file paths contain only valid UTF-8 characters",
+                            )
+                        })?;
 
                     if site_packages.exists() {
                         self.freeze_site_packages(&site_packages)?;
@@ -407,11 +410,12 @@ impl<'a> DeployManager<'a> {
         // Find and process .egg-link files
         for entry in std::fs::read_dir(site_packages)? {
             let entry = entry?;
-            let path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(
+            let path = Utf8PathBuf::try_from(entry.path()).map_err(|e| {
+                Error::deploy(
                     format!("Path is not valid UTF-8: {:?}", e),
-                    "Ensure all file paths contain only valid UTF-8 characters"
-                ))?;
+                    "Ensure all file paths contain only valid UTF-8 characters",
+                )
+            })?;
 
             if path.extension() == Some("egg-link") {
                 self.process_egg_link(&path, site_packages, &mut easy_install_entries)?;
@@ -461,29 +465,30 @@ impl<'a> DeployManager<'a> {
         }
 
         // Get package name from egg-link filename
-        let package_name = egg_link_path
-            .file_stem()
-            .ok_or_else(|| Error::deploy(
+        let package_name = egg_link_path.file_stem().ok_or_else(|| {
+            Error::deploy(
                 format!("Invalid .egg-link filename: {}", egg_link_path),
-                "Ensure .egg-link files have valid filenames with package names"
-            ))?;
+                "Ensure .egg-link files have valid filenames with package names",
+            )
+        })?;
 
         // Copy source directory contents to site-packages
         // For Python packages, we need to copy the actual package directories
         for entry in std::fs::read_dir(&source_dir)? {
             let entry = entry?;
-            let entry_path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(
+            let entry_path = Utf8PathBuf::try_from(entry.path()).map_err(|e| {
+                Error::deploy(
                     format!("Path is not valid UTF-8: {:?}", e),
-                    "Ensure all file paths contain only valid UTF-8 characters"
-                ))?;
+                    "Ensure all file paths contain only valid UTF-8 characters",
+                )
+            })?;
 
-            let name = entry_path
-                .file_name()
-                .ok_or_else(|| Error::deploy(
+            let name = entry_path.file_name().ok_or_else(|| {
+                Error::deploy(
                     format!("Path has no filename component: {}", entry_path),
-                    "This is an unexpected filesystem state"
-                ))?;
+                    "This is an unexpected filesystem state",
+                )
+            })?;
 
             // Skip special directories and files
             if name.starts_with('.') || name == "build" || name.ends_with(".egg-info") {
@@ -504,11 +509,12 @@ impl<'a> DeployManager<'a> {
         // Find and copy .egg-info directory
         for entry in std::fs::read_dir(&source_dir)? {
             let entry = entry?;
-            let entry_path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(
+            let entry_path = Utf8PathBuf::try_from(entry.path()).map_err(|e| {
+                Error::deploy(
                     format!("Path is not valid UTF-8: {:?}", e),
-                    "Ensure all file paths contain only valid UTF-8 characters"
-                ))?;
+                    "Ensure all file paths contain only valid UTF-8 characters",
+                )
+            })?;
 
             if let Some(name) = entry_path.file_name() {
                 if name.ends_with(".egg-info") && entry_path.is_dir() {
@@ -548,13 +554,7 @@ impl<'a> DeployManager<'a> {
     /// Compile Python files to .pyc
     fn compile_python_files(&self, directory: &Utf8Path) -> Result<()> {
         let status = Command::new("python3")
-            .args([
-                "-m",
-                "compileall",
-                "-q",
-                "-f",
-                directory.as_str(),
-            ])
+            .args(["-m", "compileall", "-q", "-f", directory.as_str()])
             .status();
 
         match status {
@@ -584,11 +584,12 @@ impl<'a> DeployManager<'a> {
     fn fix_shebangs(&self, bin_dir: &Utf8Path) -> Result<()> {
         for entry in std::fs::read_dir(bin_dir)? {
             let entry = entry?;
-            let path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(
+            let path = Utf8PathBuf::try_from(entry.path()).map_err(|e| {
+                Error::deploy(
                     format!("Path is not valid UTF-8: {:?}", e),
-                    "Ensure all file paths contain only valid UTF-8 characters"
-                ))?;
+                    "Ensure all file paths contain only valid UTF-8 characters",
+                )
+            })?;
 
             if path.is_file() {
                 self.fix_shebang(&path)?;
@@ -736,11 +737,7 @@ eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
         // Detect changed packages
         let changed = self.detect_changed_packages(target_name, packages)?;
 
-        tracing::info!(
-            "Deploying to {}:{}",
-            config.target,
-            config.target_dir
-        );
+        tracing::info!("Deploying to {}:{}", config.target, config.target_dir);
 
         // Parse SSH target - handle optional port in format "user@host:port"
         let (ssh_target, ssh_port) = parse_ssh_target(&config.target);
@@ -796,13 +793,14 @@ eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
 
         tracing::info!("Running post-deploy: {}", command);
 
-        let status = Command::new("sh")
-            .args(["-c", &command])
-            .status()?;
+        let status = Command::new("sh").args(["-c", &command]).status()?;
 
         if !status.success() {
             return Err(Error::deploy(
-                format!("post_deploy command failed with exit code: {:?}", status.code()),
+                format!(
+                    "post_deploy command failed with exit code: {:?}",
+                    status.code()
+                ),
                 "Check the post_deploy command in your devros.toml",
             ));
         }
@@ -990,28 +988,19 @@ mod tests {
     fn test_make_relative_path() {
         // Same level
         assert_eq!(
-            make_relative_path(
-                Utf8Path::new("/a/b/c"),
-                Utf8Path::new("/a/b/d")
-            ),
+            make_relative_path(Utf8Path::new("/a/b/c"), Utf8Path::new("/a/b/d")),
             Utf8PathBuf::from("../d")
         );
 
         // Deeper path
         assert_eq!(
-            make_relative_path(
-                Utf8Path::new("/a/b"),
-                Utf8Path::new("/a/b/c/d")
-            ),
+            make_relative_path(Utf8Path::new("/a/b"), Utf8Path::new("/a/b/c/d")),
             Utf8PathBuf::from("c/d")
         );
 
         // Shallower path
         assert_eq!(
-            make_relative_path(
-                Utf8Path::new("/a/b/c/d"),
-                Utf8Path::new("/a/b")
-            ),
+            make_relative_path(Utf8Path::new("/a/b/c/d"), Utf8Path::new("/a/b")),
             Utf8PathBuf::from("../..")
         );
     }
@@ -1035,8 +1024,14 @@ mod tests {
         // Verify
         assert!(dst.join("file1.txt").exists());
         assert!(dst.join("subdir/file2.txt").exists());
-        assert_eq!(fs::read_to_string(dst.join("file1.txt")).unwrap(), "content1");
-        assert_eq!(fs::read_to_string(dst.join("subdir/file2.txt")).unwrap(), "content2");
+        assert_eq!(
+            fs::read_to_string(dst.join("file1.txt")).unwrap(),
+            "content1"
+        );
+        assert_eq!(
+            fs::read_to_string(dst.join("subdir/file2.txt")).unwrap(),
+            "content2"
+        );
     }
 
     #[test]
@@ -1046,10 +1041,19 @@ mod tests {
 
         // With port
         assert_eq!(parse_ssh_target("user@host:22"), ("user@host", Some(22)));
-        assert_eq!(parse_ssh_target("admin@192.168.1.100:2222"), ("admin@192.168.1.100", Some(2222)));
+        assert_eq!(
+            parse_ssh_target("admin@192.168.1.100:2222"),
+            ("admin@192.168.1.100", Some(2222))
+        );
 
         // Edge cases
-        assert_eq!(parse_ssh_target("user@host:invalid"), ("user@host:invalid", None));
-        assert_eq!(parse_ssh_target("user@host:99999"), ("user@host:99999", None)); // Port out of range
+        assert_eq!(
+            parse_ssh_target("user@host:invalid"),
+            ("user@host:invalid", None)
+        );
+        assert_eq!(
+            parse_ssh_target("user@host:99999"),
+            ("user@host:99999", None)
+        ); // Port out of range
     }
 }

@@ -69,7 +69,9 @@ impl Workspace {
 
     /// Get packages in build order
     pub fn packages_in_build_order(&self) -> impl Iterator<Item = &Package> {
-        self.build_order.iter().filter_map(|name| self.packages.get(name))
+        self.build_order
+            .iter()
+            .filter_map(|name| self.packages.get(name))
     }
 
     /// Get a package by name

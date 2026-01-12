@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 use miette::Result;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 mod commands;
 

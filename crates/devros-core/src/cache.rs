@@ -104,7 +104,10 @@ impl CacheManager {
 
         let content = serde_json::to_string_pretty(entry).map_err(|e| {
             Error::cache(
-                format!("Failed to serialize cache entry for {}: {}", package_name, e),
+                format!(
+                    "Failed to serialize cache entry for {}: {}",
+                    package_name, e
+                ),
                 "This is likely a bug in devros",
             )
         })?;
@@ -116,19 +119,12 @@ impl CacheManager {
     /// Check if a package needs to be rebuilt
     ///
     /// Returns true if the package needs to be rebuilt, false if cached.
-    pub fn needs_rebuild(
-        &mut self,
-        package_name: &str,
-        current_hash: &str,
-    ) -> Result<bool> {
+    pub fn needs_rebuild(&mut self, package_name: &str, current_hash: &str) -> Result<bool> {
         match self.load(package_name)? {
             Some(entry) => {
                 // Only skip if hash matches AND previous build succeeded
                 if entry.hash == current_hash && entry.status == CacheStatus::Success {
-                    tracing::debug!(
-                        package = package_name,
-                        "Cache hit - skipping build"
-                    );
+                    tracing::debug!(package = package_name, "Cache hit - skipping build");
                     Ok(false)
                 } else {
                     tracing::debug!(
@@ -141,10 +137,7 @@ impl CacheManager {
                 }
             }
             None => {
-                tracing::debug!(
-                    package = package_name,
-                    "No cache entry - build needed"
-                );
+                tracing::debug!(package = package_name, "No cache entry - build needed");
                 Ok(true)
             }
         }
@@ -171,10 +164,7 @@ impl CacheManager {
 }
 
 /// Compute Blake3 hash for a package
-pub fn compute_package_hash(
-    package_path: &Utf8Path,
-    dependency_hashes: &[&str],
-) -> Result<String> {
+pub fn compute_package_hash(package_path: &Utf8Path, dependency_hashes: &[&str]) -> Result<String> {
     let mut hasher = blake3::Hasher::new();
 
     // Hash all files in the package directory

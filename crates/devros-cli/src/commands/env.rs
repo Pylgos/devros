@@ -65,7 +65,10 @@ fn shell_command(workspace_root: &Utf8Path, args: ShellArgs) -> Result<()> {
         // Set up environment for a specific package
         let workspace = Workspace::discover(workspace_root).into_diagnostic()?;
         let install_dir = workspace.package_install_dir(package_name);
-        let dsv_path = install_dir.join("share").join(package_name).join("package.dsv");
+        let dsv_path = install_dir
+            .join("share")
+            .join(package_name)
+            .join("package.dsv");
 
         if dsv_path.exists() {
             let dsv = DsvFile::parse(&dsv_path).into_diagnostic()?;
@@ -83,7 +86,10 @@ fn shell_command(workspace_root: &Utf8Path, args: ShellArgs) -> Result<()> {
 
         for package_name in &workspace.build_order {
             let install_dir = workspace.package_install_dir(package_name);
-            let dsv_path = install_dir.join("share").join(package_name).join("package.dsv");
+            let dsv_path = install_dir
+                .join("share")
+                .join(package_name)
+                .join("package.dsv");
 
             if dsv_path.exists() {
                 if let Ok(dsv) = DsvFile::parse(&dsv_path) {

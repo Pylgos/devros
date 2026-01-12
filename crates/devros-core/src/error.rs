@@ -27,31 +27,19 @@ pub enum Error {
 
     /// Configuration error
     #[error("Configuration error: {message}")]
-    Config {
-        message: String,
-        help: String,
-    },
+    Config { message: String, help: String },
 
     /// Package error
     #[error("Package error: {message}")]
-    Package {
-        message: String,
-        help: String,
-    },
+    Package { message: String, help: String },
 
     /// Workspace error
     #[error("Workspace error: {message}")]
-    Workspace {
-        message: String,
-        help: String,
-    },
+    Workspace { message: String, help: String },
 
     /// Dependency resolution error
     #[error("Dependency resolution error: {message}")]
-    DependencyResolution {
-        message: String,
-        help: String,
-    },
+    DependencyResolution { message: String, help: String },
 
     /// Circular dependency detected
     #[error("Circular dependency detected: {packages:?}")]
@@ -63,24 +51,15 @@ pub enum Error {
 
     /// DSV parsing error
     #[error("DSV parsing error: {message}")]
-    DsvParse {
-        message: String,
-        help: String,
-    },
+    DsvParse { message: String, help: String },
 
     /// Cache error
     #[error("Cache error: {message}")]
-    Cache {
-        message: String,
-        help: String,
-    },
+    Cache { message: String, help: String },
 
     /// Deploy error
     #[error("Deploy error: {message}")]
-    Deploy {
-        message: String,
-        help: String,
-    },
+    Deploy { message: String, help: String },
 }
 
 impl Error {

@@ -21,7 +21,8 @@ fn test_discover_simple_workspace() {
     let workspace_root =
         camino::Utf8Path::from_path(&workspace_path).expect("path should be valid UTF-8");
 
-    let workspace = Workspace::discover(workspace_root).expect("workspace discovery should succeed");
+    let workspace =
+        Workspace::discover(workspace_root).expect("workspace discovery should succeed");
 
     // Should find both packages
     assert_eq!(workspace.packages.len(), 2);
@@ -59,7 +60,8 @@ fn test_workspace_paths() {
     let workspace_root =
         camino::Utf8Path::from_path(&workspace_path).expect("path should be valid UTF-8");
 
-    let workspace = Workspace::discover(workspace_root).expect("workspace discovery should succeed");
+    let workspace =
+        Workspace::discover(workspace_root).expect("workspace discovery should succeed");
 
     // Test build directory path
     let build_dir = workspace.package_build_dir("pkg_a");
