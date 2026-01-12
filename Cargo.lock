@@ -298,6 +298,7 @@ dependencies = [
  "blake3",
  "camino",
  "chrono",
+ "jobserver",
  "miette",
  "petgraph",
  "quick-xml",

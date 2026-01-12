@@ -9,6 +9,7 @@
 //! - Build cache management
 //! - Deployment and materialization
 
+pub mod build;
 pub mod cache;
 pub mod config;
 pub mod deploy;

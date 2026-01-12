@@ -28,5 +28,8 @@ petgraph.workspace = true
 blake3.workspace = true
 chrono.workspace = true
 
+# Jobserver (GNU Make protocol)
+jobserver.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
