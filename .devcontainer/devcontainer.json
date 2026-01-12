@@ -1,0 +1,47 @@
+{
+  "name": "devros-devcontainer",
+  "remoteUser": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  "mounts": [
+    "source=${localWorkspaceFolder}/.cache/cargo,target=/usr/local/cargo/registry,type=bind",
+    "source=${localWorkspaceFolder}/.cache/claude,target=/home/ubuntu/.claude,type=bind",
+    "source=${localWorkspaceFolder}/.cache/gemini,target=/home/ubuntu/.gemini,type=bind",
+    "source=${localWorkspaceFolder}/.cache/xdg-state,target=/home/ubuntu/.local/state,type=bind",
+    "source=${localWorkspaceFolder}/.cache/xdg-data,target=/home/ubuntu/.local/share,type=bind",
+    "source=${localWorkspaceFolder}/.cache/xdg-cache,target=/home/ubuntu/.cache,type=bind"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "ms-azuretools.vscode-docker",
+        "google.gemini-cli-vscode-ide-companion",
+        "Anthropic.claude-code",
+        "github.vscode-github-actions",
+        "redhat.vscode-yaml",
+        "TomPollak.lazygit-vscode"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.checkOnSave": true,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        }
+      }
+    }
+  },
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  }
+}
