@@ -58,15 +58,17 @@ pub fn generate_colcon_marker_file(run_dependencies: &[&str]) -> String {
 /// It calls `_local_setup_util_sh.py` to get the topological order of packages
 /// and sources each package's setup script.
 pub fn generate_workspace_local_setup_sh(install_dir: &Utf8Path) -> String {
-    include_str!("local_setup.sh.template")
-        .replace("{{INSTALL_DIR}}", install_dir.as_str())
+    include_str!("local_setup.sh.template").replace("{{INSTALL_DIR}}", install_dir.as_str())
 }
 
 /// Generate workspace setup.sh content (colcon-compatible)
 ///
 /// This is the chain script that sources any parent workspaces first,
 /// then sources the current workspace's local_setup.sh.
-pub fn generate_workspace_setup_sh(install_dir: &Utf8Path, chained_prefix_paths: &[&str]) -> String {
+pub fn generate_workspace_setup_sh(
+    install_dir: &Utf8Path,
+    chained_prefix_paths: &[&str],
+) -> String {
     let mut chained_section = String::new();
 
     if !chained_prefix_paths.is_empty() {
@@ -159,7 +161,10 @@ pub fn write_colcon_marker_file(
     package_name: &str,
     workspace_run_deps: &[&str],
 ) -> Result<Utf8PathBuf> {
-    let marker_dir = install_dir.join("share").join("colcon-core").join("packages");
+    let marker_dir = install_dir
+        .join("share")
+        .join("colcon-core")
+        .join("packages");
     std::fs::create_dir_all(&marker_dir)?;
 
     let marker_path = marker_dir.join(package_name);

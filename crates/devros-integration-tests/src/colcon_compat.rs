@@ -634,8 +634,10 @@ pub fn compare_environment_variables(
         match (colcon_val, devros_val) {
             (Some(c), Some(d)) => {
                 // Normalize paths - replace install directory paths
-                let c_normalized = normalize_paths(c, colcon_install.as_str(), devros_install.as_str());
-                let d_normalized = normalize_paths(d, devros_install.as_str(), colcon_install.as_str());
+                let c_normalized =
+                    normalize_paths(c, colcon_install.as_str(), devros_install.as_str());
+                let d_normalized =
+                    normalize_paths(d, devros_install.as_str(), colcon_install.as_str());
 
                 if c_normalized != d_normalized {
                     // Check if the difference is only in build directory paths
@@ -720,10 +722,7 @@ fn get_setup_environment(
     use std::process::Command;
 
     let setup_script = install_dir.join("setup.bash");
-    let cmd = format!(
-        "source {} && env",
-        setup_script.as_str()
-    );
+    let cmd = format!("source {} && env", setup_script.as_str());
 
     let output = Command::new("bash")
         .args(["-c", &cmd])

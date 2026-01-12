@@ -72,22 +72,10 @@ impl AmentPythonBuilder {
 
         if options.symlink_install {
             // Symlink install mode: use develop command
-            Self::build_develop(
-                package,
-                &build_dir,
-                &install_dir,
-                source_dir,
-                &env,
-            )?;
+            Self::build_develop(package, &build_dir, &install_dir, source_dir, &env)?;
         } else {
             // Standard install mode
-            Self::build_install(
-                package,
-                &build_dir,
-                &install_dir,
-                source_dir,
-                &env,
-            )?;
+            Self::build_install(package, &build_dir, &install_dir, source_dir, &env)?;
         }
 
         // Post-processing: ensure package.xml is installed
@@ -459,10 +447,7 @@ _colcon_prepend_unique_value PYTHONPATH "{}"
             "share/{}/hook/pythonpath_develop.dsv",
             package.name
         ));
-        all_hooks.push(format!(
-            "share/{}/hook/pythonpath_develop.sh",
-            package.name
-        ));
+        all_hooks.push(format!("share/{}/hook/pythonpath_develop.sh", package.name));
     }
 
     // Generate package.dsv

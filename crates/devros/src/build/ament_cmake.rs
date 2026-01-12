@@ -188,8 +188,7 @@ impl AmentCmakeBuilder {
         let install_dir = workspace.package_install_dir(&package.name);
 
         // Get workspace package names for filtering dependencies
-        let workspace_packages: HashSet<String> =
-            workspace.packages.keys().cloned().collect();
+        let workspace_packages: HashSet<String> = workspace.packages.keys().cloned().collect();
 
         // Get runtime dependencies that are in the workspace
         let run_deps: Vec<String> = package
@@ -218,7 +217,10 @@ impl AmentCmakeBuilder {
     }
 
     /// Generate cmake_prefix_path hooks for CMake packages
-    fn generate_cmake_prefix_path_hooks(install_dir: &camino::Utf8PathBuf, package_name: &str) -> Result<()> {
+    fn generate_cmake_prefix_path_hooks(
+        install_dir: &camino::Utf8PathBuf,
+        package_name: &str,
+    ) -> Result<()> {
         let hook_dir = install_dir.join("share").join(package_name).join("hook");
         std::fs::create_dir_all(&hook_dir)?;
 
@@ -242,7 +244,10 @@ _colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
     }
 
     /// Update package.dsv to include cmake_prefix_path hooks
-    fn update_package_dsv_with_cmake_hooks(package_dsv_path: &camino::Utf8PathBuf, package_name: &str) -> Result<()> {
+    fn update_package_dsv_with_cmake_hooks(
+        package_dsv_path: &camino::Utf8PathBuf,
+        package_name: &str,
+    ) -> Result<()> {
         let share_dir = package_dsv_path.parent().unwrap();
         std::fs::create_dir_all(share_dir)?;
 
@@ -257,10 +262,7 @@ _colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
         let cmake_hook_dsv = format!("source;share/{}/hook/cmake_prefix_path.dsv", package_name);
         let cmake_hook_sh = format!("source;share/{}/hook/cmake_prefix_path.sh", package_name);
 
-        let mut lines: Vec<String> = existing_content
-            .lines()
-            .map(|s| s.to_string())
-            .collect();
+        let mut lines: Vec<String> = existing_content.lines().map(|s| s.to_string()).collect();
 
         // Add cmake_prefix_path hooks at the beginning if not present
         let mut modified = false;

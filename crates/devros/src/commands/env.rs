@@ -1,9 +1,9 @@
 //! Environment command implementation
 
-use camino::{Utf8Path, Utf8PathBuf};
-use clap::{Args, Subcommand};
 use crate::dsv::{DsvFile, EnvCalculator, ShellType};
 use crate::workspace::Workspace;
+use camino::{Utf8Path, Utf8PathBuf};
+use clap::{Args, Subcommand};
 use miette::{IntoDiagnostic, Result};
 use walkdir::WalkDir;
 
