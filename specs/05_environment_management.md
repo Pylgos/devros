@@ -1,15 +1,20 @@
 # 環境変数管理 (Environment Management)
 
+[reference_colcon_environment_management.md](./reference_colcon_environment_management.md)も参考にしてください。
+
+## Devros における実装方針
+
 devrosは、`colcon` の低速なPythonベースのセットアップスクリプト (`_local_setup_util_sh.py`) を排除し、Rustによる高速かつ安全な環境変数管理を提供します。
 
-## コア戦略
+### 1. コア戦略
 
-### 1. インメモリ計算
+#### インメモリ計算
 ビルド時やコマンド実行時に、Rust内部で環境変数の状態を計算します。
-- 依存グラフのトポロジカルソート順に従って各パッケージを処理します。
-- 各パッケージの `.dsv` (Dynamic Source Value) ファイル定義に基づき、環境変数への操作 (Set, Append, Prepend) を適用します。
+- **発見**: `share/colcon-core/packages/` のマーカーファイルを利用して、ワークスペース内のパッケージを網羅します。
+- **ソート**: 依存グラフのトポロジカルソート順を計算します。
+- **適用**: 各パッケージの `.dsv` (Dynamic Source Value) ファイル定義をパースし、環境変数への操作 (Set, Append, Prepend) をメモリ上でシミュレーションします。
 
-### 2. シェルスクリプト生成 (`devros env`)
+#### シェルスクリプト生成 (`devros env`)
 環境変数を適用するためのシェルコマンドを生成するCLIコマンドを提供します。
 
 ```bash
@@ -18,7 +23,7 @@ devros env shell --shell bash
 
 このコマンドは、計算された環境変数を設定するための一連の `export` コマンドなどを標準出力に出力します。これにより、複雑なロジックをRust側に隠蔽し、シェルスクリプトを単純化します。
 
-### 3. 軽量なセットアップスクリプト
+#### 軽量なセットアップスクリプト
 `install/setup.bash` は、`devros env` コマンドを呼び出すだけの軽量なラッパーとして生成されます。
 
 ```bash
@@ -76,3 +81,4 @@ eval "$(devros env shell --shell bash)"
 
 ### 実装上の注意
 - Rust側で `.dsv` をパースする際は、`colcon-core` の `prefix_util.py.em` (`process_dsv_file` 関数など) と同等のロジックを実装する必要があります。特に、相対パスの解決ロジックと重複排除ロジックに注意してください。
+- `ament_cmake` パッケージ以外の互換性（例: catkinパッケージ）も考慮し、`catkin_env_hook` などの仕組みも将来的にはサポートが必要になる可能性がありますが、当面は ROS 2 (`ament`) 標準に準拠します。

@@ -72,12 +72,7 @@ CMakeを使用した標準的なROS 2パッケージのビルドプロセスで�
     ```
 
 5.  **後処理**
-    *   **環境設定スクリプトの生成**:
-        複雑なスクリプト生成を避け、ロジックを `devros` 本体に集約します。
-        *   **`package.dsv`**: パッケージ固有の環境変数定義を記述したファイルを生成します。
-        *   **`local_setup.sh`**: `devros` のサブコマンド（例: `devros env setup --package <name>`）を呼び出し、その出力を `eval` するだけのシンプルなスクリプトを生成します。
-        *   **`setup.sh`**: ワークスペース全体を対象に `devros env setup` を呼び出すスクリプトを生成します。
-        *   **前提**: この方式は実行環境にも `devros` がインストールされていることを前提とします。スタンドアロンなPythonスクリプト等によるセットアップ機能は、必要が生じた段階で検討・追加します。
+    *   **環境設定スクリプトの生成**: [reference_colcon_environment_management.md](./reference_colcon_environment_management.md) に従い、colcon互換のdsvファイルを生成します。
 
 ### ament_python
 
@@ -125,9 +120,7 @@ CMakeを使用した標準的なROS 2パッケージのビルドプロセスで�
     *   **メタデータの配置**:
         *   `package.xml` がインストール先に存在しない場合、コピーまたはリンクを作成します。
         *   Amentリソースインデックスへの登録（`share/ament_index/resource_index/packages/<name>` マーカーファイルの作成）を行います。
-    *   **環境設定スクリプトの生成**:
-        `ament_cmake` と同様に、`package.dsv` を生成し、`devros` を利用した `local_setup.sh` を配置します。
-        *   生成する `package.dsv` には、`AMENT_PREFIX_PATH` の設定に加え、Pythonパッケージ特有の `PYTHONPATH` へのパス追加（`lib/pythonX.Y/site-packages`）を含めます。
+    *   **環境設定スクリプトの生成**: [reference_colcon_environment_management.md](./reference_colcon_environment_management.md) に従い、colcon互換のdsvファイルを生成します。
 
 ## ビルド設定 (devros.toml)
 
