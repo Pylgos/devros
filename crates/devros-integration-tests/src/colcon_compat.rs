@@ -585,9 +585,13 @@ pub fn compare_environment_variables(
     colcon_install: &Utf8Path,
     devros_install: &Utf8Path,
     base_env: &std::collections::HashMap<String, String>,
+    devros_binary: &Path,
 ) -> Result<Vec<EnvDifference>> {
-    let colcon_env = get_setup_environment(colcon_install, base_env)?;
-    let devros_env = get_setup_environment(devros_install, base_env)?;
+    let colcon_env = get_environment(&format!("source {}/setup.bash", colcon_install), base_env)?;
+    let devros_env = get_environment(
+        &format!("eval \"$({} env shell)\"", devros_binary.display()),
+        base_env,
+    )?;
 
     let mut differences = Vec::new();
 
@@ -689,14 +693,13 @@ impl std::fmt::Display for EnvDifference {
 }
 
 /// Get environment after sourcing setup.bash
-fn get_setup_environment(
-    install_dir: &Utf8Path,
+fn get_environment(
+    command: &str,
     base_env: &std::collections::HashMap<String, String>,
 ) -> Result<std::collections::HashMap<String, String>> {
     use std::process::Command;
 
-    let setup_script = install_dir.join("setup.bash");
-    let cmd = format!("source {} && env", setup_script.as_str());
+    let cmd = format!("{} && env", command);
 
     let output = Command::new("bash")
         .args(["-c", &cmd])
@@ -738,6 +741,7 @@ fn should_skip_env_key(key: &str) -> bool {
         "PWD",
         "COLUMNS",
         "LINES",
+        "SHLVL",
     ];
 
     for skip in &skip_keys {

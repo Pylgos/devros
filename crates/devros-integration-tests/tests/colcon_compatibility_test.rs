@@ -287,8 +287,9 @@ fn test_environment_variable_compatibility() {
     let devros_install = build_with_devros(&ws_path, &devros_binary, &env);
 
     // Compare environment variables
-    let differences = compare_environment_variables(&colcon_install, &devros_install, &env)
-        .expect("Failed to compare environment variables");
+    let differences =
+        compare_environment_variables(&colcon_install, &devros_install, &env, &devros_binary)
+            .expect("Failed to compare environment variables");
 
     // Print differences for debugging
     if !differences.is_empty() {
