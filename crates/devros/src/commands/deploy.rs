@@ -2,8 +2,8 @@
 
 use camino::Utf8Path;
 use clap::Args;
-use devros_core::deploy::DeployManager;
-use devros_core::workspace::Workspace;
+use crate::deploy::DeployManager;
+use crate::workspace::Workspace;
 use miette::{IntoDiagnostic, Result};
 
 /// Arguments for the deploy command
@@ -77,11 +77,11 @@ pub fn run(workspace_root: &Utf8Path, args: DeployArgs) -> Result<()> {
         }
 
         match target_config {
-            devros_core::config::DeployTarget::Local(config) => {
+            crate::config::DeployTarget::Local(config) => {
                 println!("\nTarget: local");
                 println!("Directory: {}", config.target_dir);
             }
-            devros_core::config::DeployTarget::Remote(config) => {
+            crate::config::DeployTarget::Remote(config) => {
                 println!("\nTarget: remote");
                 println!("Host: {}", config.target);
                 println!("Directory: {}", config.target_dir);

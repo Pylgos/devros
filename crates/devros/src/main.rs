@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use miette::Result;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-mod commands;
+use devros::commands;
 
 /// devros - ROS 2 workflow management tool
 #[derive(Debug, Parser)]

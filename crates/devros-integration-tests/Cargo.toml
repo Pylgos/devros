@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-devros-core = { path = "../devros-core" }
+devros = { path = "../devros" }
 
 # Utilities
 camino.workspace = true
