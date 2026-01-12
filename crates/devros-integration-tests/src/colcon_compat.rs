@@ -730,13 +730,10 @@ fn get_setup_environment(
         .output()?;
 
     if !output.status.success() {
-        return Err(ComparisonError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Failed to source setup.bash: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ),
-        )));
+        return Err(ComparisonError::Io(std::io::Error::other(format!(
+            "Failed to source setup.bash: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))));
     }
 
     let env_str = String::from_utf8_lossy(&output.stdout);
