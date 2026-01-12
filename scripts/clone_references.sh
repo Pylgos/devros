@@ -33,6 +33,13 @@ else
   echo "colcon-cmake already exists, skipping clone."
 fi
 
+# Clone colcon-python-setup-py
+if [ ! -d "colcon-python-setup-py" ]; then
+  git clone https://github.com/colcon/colcon-python-setup-py.git colcon-python-setup-py
+else
+  echo "colcon-python-setup-py already exists, skipping clone."
+fi
+
 # Clone reps
 if [ ! -d "reps" ]; then
   git clone https://github.com/openrobotics/reps.git reps
