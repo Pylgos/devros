@@ -176,12 +176,14 @@ struct Export {
 }
 
 /// Extract dependency names from raw dependency list
+///
+/// Note: Conditional dependencies (with `condition` attribute) are currently skipped.
+/// See: <https://github.com/ros-infrastructure/rep/blob/master/rep-0149.rst#conditional-dependencies>
 fn extract_deps(deps: &[Dependency]) -> Vec<String> {
     deps.iter()
         .filter(|d| {
-            // Skip dependencies with unsatisfied conditions
-            // For now, we include all dependencies without complex condition evaluation
-            // TODO: Implement proper condition evaluation based on environment variables
+            // Skip dependencies with conditions - they require environment variable evaluation
+            // which is not yet implemented
             d.condition.is_none()
         })
         .map(|d| d.name.clone())

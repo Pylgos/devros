@@ -134,16 +134,19 @@ impl Config {
     /// Merge two configurations (local overrides base)
     pub fn merge(base: Self, local: Self) -> Self {
         // Convert both to TOML values
-        let base_value = toml::Value::try_from(base).expect("Config serialization failed");
-        let local_value = toml::Value::try_from(local).expect("Config serialization failed");
+        let base_value = toml::Value::try_from(base)
+            .expect("Config struct should always serialize to TOML - this is a bug in devros");
+        let local_value = toml::Value::try_from(local)
+            .expect("Config struct should always serialize to TOML - this is a bug in devros");
 
         // Merge
         let merged = merge_toml_values(base_value, local_value);
 
         // Convert back
-        merged
-            .try_into()
-            .expect("Merged config deserialization failed")
+        merged.try_into().expect(
+            "Merged TOML should always deserialize to Config - this is a bug in devros. \
+             Check that all Config fields have appropriate serde defaults.",
+        )
     }
 
     /// Get the effective number of jobs

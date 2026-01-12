@@ -4,11 +4,15 @@ use devros_core::package::BuildType;
 use devros_core::workspace::Workspace;
 use std::path::PathBuf;
 
+/// Get the path to test fixtures directory.
+///
+/// Uses CARGO_MANIFEST_DIR to locate the fixtures relative to the devros-core crate.
+/// This approach is stable across different working directories and test runners.
 fn fixtures_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures")
         .canonicalize()
-        .expect("fixtures directory should exist")
+        .expect("fixtures directory should exist at tests/fixtures relative to repository root")
 }
 
 #[test]
