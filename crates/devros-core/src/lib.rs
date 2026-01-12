@@ -7,9 +7,11 @@
 //! - Environment variable management (.dsv file handling)
 //! - Build system integration (ament_cmake, ament_python)
 //! - Build cache management
+//! - Deployment and materialization
 
 pub mod cache;
 pub mod config;
+pub mod deploy;
 pub mod dsv;
 pub mod error;
 pub mod package;

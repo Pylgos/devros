@@ -19,6 +19,7 @@ clap.workspace = true
 
 # Path handling
 camino.workspace = true
+walkdir.workspace = true
 
 # Async runtime
 tokio.workspace = true

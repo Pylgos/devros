@@ -74,6 +74,13 @@ pub enum Error {
         message: String,
         help: String,
     },
+
+    /// Deploy error
+    #[error("Deploy error: {message}")]
+    Deploy {
+        message: String,
+        help: String,
+    },
 }
 
 impl Error {
@@ -125,6 +132,14 @@ impl Error {
     /// Create a cache error
     pub fn cache(message: impl Into<String>, help: impl Into<String>) -> Self {
         Self::Cache {
+            message: message.into(),
+            help: help.into(),
+        }
+    }
+
+    /// Create a deploy error
+    pub fn deploy(message: impl Into<String>, help: impl Into<String>) -> Self {
+        Self::Deploy {
             message: message.into(),
             help: help.into(),
         }

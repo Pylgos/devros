@@ -5,6 +5,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::Result;
 
@@ -17,6 +18,10 @@ pub struct Config {
 
     /// Build settings
     pub build: BuildConfig,
+
+    /// Deploy targets configuration
+    #[serde(default)]
+    pub deploy: HashMap<String, DeployTarget>,
 }
 
 /// Workspace configuration
@@ -86,6 +91,46 @@ impl Default for AmentCmakeConfig {
             export_compile_commands: false,
         }
     }
+}
+
+/// Deploy target configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum DeployTarget {
+    /// Local deployment
+    Local(LocalDeployConfig),
+    /// Remote deployment via SSH/rsync
+    Remote(RemoteDeployConfig),
+}
+
+/// Local deployment configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalDeployConfig {
+    /// Target directory path (relative to workspace root or absolute)
+    pub target_dir: Utf8PathBuf,
+}
+
+/// Remote deployment configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDeployConfig {
+    /// Transfer method (currently only "rsync" is supported)
+    pub method: TransferMethod,
+    /// Remote target directory (absolute path on remote machine)
+    pub target_dir: Utf8PathBuf,
+    /// SSH target in format "user@host" or "user@host:port"
+    pub target: String,
+    /// Command to run after deployment (optional)
+    /// Supports placeholders: {target}, {changed_packages}
+    #[serde(default)]
+    pub post_deploy: Option<String>,
+}
+
+/// Transfer method for remote deployment
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransferMethod {
+    /// rsync-based transfer
+    Rsync,
 }
 
 impl Config {
@@ -311,5 +356,80 @@ jobs = 16
 
         assert_eq!(config.workspace.root, Utf8PathBuf::from("."));
         assert!(config.build.skip_packages.is_empty());
+    }
+
+    #[test]
+    fn test_parse_local_deploy_config() {
+        let content = r#"
+[deploy.dev]
+type = "local"
+target_dir = "install_dev"
+"#;
+
+        let config = Config::parse(content).unwrap();
+
+        assert!(config.deploy.contains_key("dev"));
+        match &config.deploy["dev"] {
+            DeployTarget::Local(local) => {
+                assert_eq!(local.target_dir, Utf8PathBuf::from("install_dev"));
+            }
+            _ => panic!("Expected local deploy target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_remote_deploy_config() {
+        let content = r#"
+[deploy.production]
+type = "remote"
+method = "rsync"
+target_dir = "/opt/robot_ws"
+target = "admin@192.168.1.100"
+post_deploy = "ssh {target} 'systemctl restart robot'"
+"#;
+
+        let config = Config::parse(content).unwrap();
+
+        assert!(config.deploy.contains_key("production"));
+        match &config.deploy["production"] {
+            DeployTarget::Remote(remote) => {
+                assert_eq!(remote.method, TransferMethod::Rsync);
+                assert_eq!(remote.target_dir, Utf8PathBuf::from("/opt/robot_ws"));
+                assert_eq!(remote.target, "admin@192.168.1.100");
+                assert_eq!(
+                    remote.post_deploy.as_deref(),
+                    Some("ssh {target} 'systemctl restart robot'")
+                );
+            }
+            _ => panic!("Expected remote deploy target"),
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_deploy_targets() {
+        let content = r#"
+[deploy.dev]
+type = "local"
+target_dir = "install"
+
+[deploy.staging]
+type = "remote"
+method = "rsync"
+target_dir = "/opt/staging"
+target = "deploy@staging.local"
+
+[deploy.production]
+type = "remote"
+method = "rsync"
+target_dir = "/opt/robot"
+target = "admin@robot.local"
+"#;
+
+        let config = Config::parse(content).unwrap();
+
+        assert_eq!(config.deploy.len(), 3);
+        assert!(config.deploy.contains_key("dev"));
+        assert!(config.deploy.contains_key("staging"));
+        assert!(config.deploy.contains_key("production"));
     }
 }
