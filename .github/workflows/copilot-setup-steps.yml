@@ -28,3 +28,6 @@ jobs:
 
       - name: Setup development environment
         uses: ./.github/actions/setup-devenv
+
+      - name: Clone reference repositories
+        run: scripts/clone_references.sh
