@@ -67,3 +67,5 @@ ENV PATH="/home/ubuntu/.local/bin:${PATH}"
 
 # Source ROS 2 setup in bashrc
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+
+USER runner
