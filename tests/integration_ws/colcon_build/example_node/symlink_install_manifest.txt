@@ -1,0 +1,16 @@
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/lib/example_node/example_publisher
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/ament_index/resource_index/package_run_dependencies/example_node
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/ament_index/resource_index/parent_prefix_path/example_node
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/environment/ament_prefix_path.sh
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/environment/ament_prefix_path.dsv
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/environment/path.sh
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/environment/path.dsv
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/local_setup.bash
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/local_setup.sh
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/local_setup.zsh
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/local_setup.dsv
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/package.dsv
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/ament_index/resource_index/packages/example_node
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/cmake/example_nodeConfig.cmake
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/cmake/example_nodeConfig-version.cmake
+/home/runner/work/devros/devros/tests/integration_ws/install/example_node/share/example_node/package.xml

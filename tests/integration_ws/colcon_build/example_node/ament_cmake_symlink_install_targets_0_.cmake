@@ -1,0 +1,1 @@
+ament_cmake_symlink_install_targets("TARGET_FILES" "/home/runner/work/devros/devros/tests/integration_ws/build/example_node/example_publisher" "TARGETS" "example_publisher" "DESTINATION" "lib/example_node")

@@ -1,0 +1,2 @@
+[console_scripts]
+example_subscriber = example_py.example_subscriber:main
