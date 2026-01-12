@@ -601,3 +601,180 @@ prepend-non-duplicate;PATH;bin
         assert!(!should_exclude("share/example_py/hook/test.dsv"));
     }
 }
+
+/// Compare environment variables between colcon and devros setup scripts
+///
+/// This function sources the setup.bash from both install directories and compares
+/// the resulting environment variables. Only differences not related to install
+/// directory paths are considered errors.
+pub fn compare_environment_variables(
+    colcon_install: &Utf8Path,
+    devros_install: &Utf8Path,
+    base_env: &std::collections::HashMap<String, String>,
+) -> Result<Vec<EnvDifference>> {
+    let colcon_env = get_setup_environment(colcon_install, base_env)?;
+    let devros_env = get_setup_environment(devros_install, base_env)?;
+
+    let mut differences = Vec::new();
+
+    // Get all keys
+    let mut all_keys: BTreeSet<&str> = BTreeSet::new();
+    for key in colcon_env.keys() {
+        all_keys.insert(key);
+    }
+    for key in devros_env.keys() {
+        all_keys.insert(key);
+    }
+
+    // Compare each key
+    for key in all_keys {
+        let colcon_val = colcon_env.get(key);
+        let devros_val = devros_env.get(key);
+
+        match (colcon_val, devros_val) {
+            (Some(c), Some(d)) => {
+                // Normalize paths - replace install directory paths
+                let c_normalized = normalize_paths(c, colcon_install.as_str(), devros_install.as_str());
+                let d_normalized = normalize_paths(d, devros_install.as_str(), colcon_install.as_str());
+
+                if c_normalized != d_normalized {
+                    // Check if the difference is only in build directory paths
+                    let c_norm2 = c_normalized.replace("colcon_build", "build");
+                    if c_norm2 != d_normalized {
+                        differences.push(EnvDifference::ValueDiffers {
+                            key: key.to_string(),
+                            colcon_value: c.clone(),
+                            devros_value: d.clone(),
+                        });
+                    }
+                }
+            }
+            (Some(c), None) => {
+                // Skip COLCON_PREFIX_PATH - this is expected to differ
+                if key != "COLCON_PREFIX_PATH" && !should_skip_env_key(key) {
+                    differences.push(EnvDifference::OnlyInColcon {
+                        key: key.to_string(),
+                        value: c.clone(),
+                    });
+                }
+            }
+            (None, Some(d)) => {
+                if !should_skip_env_key(key) {
+                    differences.push(EnvDifference::OnlyInDevros {
+                        key: key.to_string(),
+                        value: d.clone(),
+                    });
+                }
+            }
+            (None, None) => unreachable!(),
+        }
+    }
+
+    Ok(differences)
+}
+
+/// Difference between colcon and devros environment
+#[derive(Debug, Clone)]
+pub enum EnvDifference {
+    /// Key only present in colcon environment
+    OnlyInColcon { key: String, value: String },
+    /// Key only present in devros environment
+    OnlyInDevros { key: String, value: String },
+    /// Value differs between colcon and devros
+    ValueDiffers {
+        key: String,
+        colcon_value: String,
+        devros_value: String,
+    },
+}
+
+impl std::fmt::Display for EnvDifference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvDifference::OnlyInColcon { key, value } => {
+                write!(f, "Only in colcon: {}={}", key, value)
+            }
+            EnvDifference::OnlyInDevros { key, value } => {
+                write!(f, "Only in devros: {}={}", key, value)
+            }
+            EnvDifference::ValueDiffers {
+                key,
+                colcon_value,
+                devros_value,
+            } => {
+                write!(
+                    f,
+                    "Value differs for {}: colcon='{}', devros='{}'",
+                    key, colcon_value, devros_value
+                )
+            }
+        }
+    }
+}
+
+/// Get environment after sourcing setup.bash
+fn get_setup_environment(
+    install_dir: &Utf8Path,
+    base_env: &std::collections::HashMap<String, String>,
+) -> Result<std::collections::HashMap<String, String>> {
+    use std::process::Command;
+
+    let setup_script = install_dir.join("setup.bash");
+    let cmd = format!(
+        "source {} && env",
+        setup_script.as_str()
+    );
+
+    let output = Command::new("bash")
+        .args(["-c", &cmd])
+        .envs(base_env)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(ComparisonError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "Failed to source setup.bash: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )));
+    }
+
+    let env_str = String::from_utf8_lossy(&output.stdout);
+    let mut env = std::collections::HashMap::new();
+
+    for line in env_str.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            env.insert(key.to_string(), value.to_string());
+        }
+    }
+
+    Ok(env)
+}
+
+/// Normalize paths in a value by replacing install directory paths
+fn normalize_paths(value: &str, source_path: &str, _target_path: &str) -> String {
+    value.replace(source_path, "{INSTALL_DIR}")
+}
+
+/// Check if an environment key should be skipped in comparison
+fn should_skip_env_key(key: &str) -> bool {
+    // Skip shell-specific variables
+    let skip_keys = [
+        "_",
+        "BASH_FUNC_",
+        "SHLVL",
+        "OLDPWD",
+        "PWD",
+        "COLUMNS",
+        "LINES",
+    ];
+
+    for skip in &skip_keys {
+        if key.starts_with(skip) {
+            return true;
+        }
+    }
+
+    false
+}

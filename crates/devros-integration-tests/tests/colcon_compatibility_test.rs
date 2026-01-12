@@ -4,7 +4,9 @@
 //! then compare the outputs to ensure compatibility.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use devros_integration_tests::colcon_compat::{DsvEntries, compare_install_dirs, scan_directory};
+use devros_integration_tests::colcon_compat::{
+    compare_environment_variables, compare_install_dirs, scan_directory, DsvEntries, EnvDifference,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -241,4 +243,52 @@ fn test_directory_scan() {
             "file.txt"
         );
     }
+}
+
+/// Test that environment variables are equivalent between colcon and devros
+///
+/// This test builds the workspace with both tools, sources their setup.bash scripts,
+/// and compares the resulting environment variables. Differences in install directory
+/// paths are normalized and ignored. Only actual functional differences cause failures.
+#[test]
+fn test_environment_variable_compatibility() {
+    let ws_path = integration_ws_path();
+    let devros_binary = devros_binary_path();
+    let env = ros2_env();
+
+    // Ensure ROS 2 is available
+    if !env.contains_key("AMENT_PREFIX_PATH") {
+        eprintln!("ROS 2 environment not available, skipping test");
+        return;
+    }
+
+    // Clean workspace
+    clean_workspace(&ws_path);
+
+    // Build with both tools
+    let colcon_install = build_with_colcon(&ws_path, &env);
+    let devros_install = build_with_devros(&ws_path, &devros_binary, &env);
+
+    // Compare environment variables
+    let differences = compare_environment_variables(&colcon_install, &devros_install, &env)
+        .expect("Failed to compare environment variables");
+
+    // Print differences for debugging
+    if !differences.is_empty() {
+        eprintln!(
+            "\n=== Environment variable comparison found {} differences ===",
+            differences.len()
+        );
+        for diff in &differences {
+            eprintln!("  - {}", diff);
+        }
+    }
+
+    // The test should pass if there are no significant differences
+    // (differences in install paths are already normalized)
+    assert!(
+        differences.is_empty(),
+        "Environment variable comparison failed with {} differences",
+        differences.len()
+    );
 }

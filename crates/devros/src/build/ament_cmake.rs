@@ -3,10 +3,11 @@
 //! This module handles building packages that use the ament_cmake build system.
 
 use camino::Utf8PathBuf;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
 use crate::Result;
+use crate::dsv::write_colcon_marker_file;
 use crate::package::Package;
 use crate::workspace::Workspace;
 
@@ -66,6 +67,9 @@ impl AmentCmakeBuilder {
 
         // Install
         Self::run_install(&build_dir, &env, &package.name)?;
+
+        // Generate colcon marker file for this package
+        Self::generate_colcon_files(workspace, package)?;
 
         Ok(())
     }
@@ -174,6 +178,106 @@ impl AmentCmakeBuilder {
                 format!("CMake install failed for {}", package_name),
                 "Check the install output for errors",
             ));
+        }
+
+        Ok(())
+    }
+
+    /// Generate colcon-compatible files for the package
+    fn generate_colcon_files(workspace: &Workspace, package: &Package) -> Result<()> {
+        let install_dir = workspace.package_install_dir(&package.name);
+
+        // Get workspace package names for filtering dependencies
+        let workspace_packages: HashSet<String> =
+            workspace.packages.keys().cloned().collect();
+
+        // Get runtime dependencies that are in the workspace
+        let run_deps: Vec<String> = package
+            .run_dependencies()
+            .filter(|dep| workspace_packages.contains(*dep))
+            .map(|s| s.to_string())
+            .collect();
+        let run_deps_refs: Vec<&str> = run_deps.iter().map(|s| s.as_str()).collect();
+
+        // Write colcon marker file
+        write_colcon_marker_file(&install_dir, &package.name, &run_deps_refs)?;
+
+        // Generate cmake_prefix_path hooks for CMake packages
+        // This is needed so CMake can find the package's config files
+        Self::generate_cmake_prefix_path_hooks(&install_dir, &package.name)?;
+
+        // For ament_cmake packages, ament_cmake generates local_setup.* files during CMake install
+        // We need to update package.dsv to also include cmake_prefix_path hooks
+        let share_dir = install_dir.join("share").join(&package.name);
+        let package_dsv_path = share_dir.join("package.dsv");
+
+        // Generate/update package.dsv with cmake_prefix_path hooks
+        Self::update_package_dsv_with_cmake_hooks(&package_dsv_path, &package.name)?;
+
+        Ok(())
+    }
+
+    /// Generate cmake_prefix_path hooks for CMake packages
+    fn generate_cmake_prefix_path_hooks(install_dir: &camino::Utf8PathBuf, package_name: &str) -> Result<()> {
+        let hook_dir = install_dir.join("share").join(package_name).join("hook");
+        std::fs::create_dir_all(&hook_dir)?;
+
+        // Generate hook/cmake_prefix_path.dsv
+        std::fs::write(
+            hook_dir.join("cmake_prefix_path.dsv"),
+            "prepend-non-duplicate;CMAKE_PREFIX_PATH;\n",
+        )?;
+
+        // Generate hook/cmake_prefix_path.sh (colcon-compatible)
+        std::fs::write(
+            hook_dir.join("cmake_prefix_path.sh"),
+            r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
+"#,
+        )?;
+
+        tracing::debug!("Generated cmake_prefix_path hooks in {}", hook_dir);
+        Ok(())
+    }
+
+    /// Update package.dsv to include cmake_prefix_path hooks
+    fn update_package_dsv_with_cmake_hooks(package_dsv_path: &camino::Utf8PathBuf, package_name: &str) -> Result<()> {
+        let share_dir = package_dsv_path.parent().unwrap();
+        std::fs::create_dir_all(share_dir)?;
+
+        // Read existing content if present
+        let existing_content = if package_dsv_path.exists() {
+            std::fs::read_to_string(package_dsv_path)?
+        } else {
+            String::new()
+        };
+
+        // Check if cmake_prefix_path hooks are already included
+        let cmake_hook_dsv = format!("source;share/{}/hook/cmake_prefix_path.dsv", package_name);
+        let cmake_hook_sh = format!("source;share/{}/hook/cmake_prefix_path.sh", package_name);
+
+        let mut lines: Vec<String> = existing_content
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Add cmake_prefix_path hooks at the beginning if not present
+        let mut modified = false;
+        if !existing_content.contains(&cmake_hook_dsv) {
+            lines.insert(0, cmake_hook_dsv);
+            modified = true;
+        }
+        if !existing_content.contains(&cmake_hook_sh) {
+            lines.insert(1, cmake_hook_sh);
+            modified = true;
+        }
+
+        // Write back if modified
+        if modified {
+            let content = lines.join("\n") + "\n";
+            std::fs::write(package_dsv_path, content)?;
+            tracing::debug!("Updated {} with cmake_prefix_path hooks", package_dsv_path);
         }
 
         Ok(())

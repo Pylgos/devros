@@ -137,6 +137,15 @@ impl Package {
             .chain(self.exec_depend.iter().map(|s| s.as_str()))
             .chain(self.test_depend.iter().map(|s| s.as_str()))
     }
+
+    /// Get runtime dependencies (exec_depend + depend)
+    /// These are the dependencies needed at runtime/sourcing time.
+    pub fn run_dependencies(&self) -> impl Iterator<Item = &str> {
+        self.exec_depend
+            .iter()
+            .chain(self.depend.iter())
+            .map(|s| s.as_str())
+    }
 }
 
 /// Raw package.xml structure for deserialization
