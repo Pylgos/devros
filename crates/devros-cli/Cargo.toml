@@ -1,0 +1,31 @@
+[package]
+name = "devros-cli"
+description = "CLI for devros - ROS 2 workflow management tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "devros"
+path = "src/main.rs"
+
+[dependencies]
+devros-core = { path = "../devros-core" }
+
+# CLI
+clap.workspace = true
+
+# Path handling
+camino.workspace = true
+
+# Async runtime
+tokio.workspace = true
+
+# Error handling
+miette.workspace = true
+
+# Logging / Tracing
+tracing.workspace = true
+tracing-subscriber.workspace = true

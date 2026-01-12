@@ -1,0 +1,29 @@
+[package]
+name = "devros-core"
+description = "Core library for devros - ROS 2 workflow management tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Serialization
+serde.workspace = true
+toml.workspace = true
+quick-xml.workspace = true
+
+# Error handling
+miette.workspace = true
+thiserror.workspace = true
+
+# Logging / Tracing
+tracing.workspace = true
+
+# Utilities
+camino.workspace = true
+walkdir.workspace = true
+petgraph.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
