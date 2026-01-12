@@ -14,11 +14,7 @@ on:
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
   copilot-setup-steps:
-    runs-on: ubuntu-latest
-
-    container:
-      image: ghcr.io/pylgos/devros-devcontainer:latest
-      options: --user runner:runner --volume /home/runner:/home/runner --cap-add=NET_ADMIN --cap-add=NET_RAW
+    runs-on: ubuntu-24.04
 
     # Set the permissions to the lowest permissions possible needed for your steps.
     # Copilot will be given its own token for its operations.
@@ -30,10 +26,5 @@ jobs:
       - name: checkout codebase
         uses: actions/checkout@v6
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        with:
-          detached: true
-
-      - name: Mark repository as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Setup development environment
+        uses: ./.github/actions/setup-devenv

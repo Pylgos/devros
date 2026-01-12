@@ -14,7 +14,6 @@
     "source=${localWorkspaceFolder}/.cache/claude,target=/home/ubuntu/.claude,type=bind",
     "source=${localWorkspaceFolder}/.cache/gemini,target=/home/ubuntu/.gemini,type=bind",
     "source=${localWorkspaceFolder}/.cache/xdg-state,target=/home/ubuntu/.local/state,type=bind",
-    "source=${localWorkspaceFolder}/.cache/xdg-data,target=/home/ubuntu/.local/share,type=bind",
     "source=${localWorkspaceFolder}/.cache/xdg-cache,target=/home/ubuntu/.cache,type=bind"
   ],
   "customizations": {
