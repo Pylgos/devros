@@ -28,6 +28,9 @@ enum Commands {
     /// Build packages in the workspace
     Build(commands::build::BuildArgs),
 
+    /// Deploy packages to a target
+    Deploy(commands::deploy::DeployArgs),
+
     /// Environment variable management
     Env {
         #[command(subcommand)]
@@ -58,6 +61,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Build(args) => commands::build::run(&workspace_root, args),
+        Commands::Deploy(args) => commands::deploy::run(&workspace_root, args),
         Commands::Env { command } => commands::env::run(&workspace_root, command),
     }
 }
