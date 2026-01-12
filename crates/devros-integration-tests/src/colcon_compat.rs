@@ -245,7 +245,7 @@ fn should_exclude(path: &str) -> bool {
     }
 
     // These files may differ in content but are acceptable
-    let acceptable_difference_in_file = ["local_setup.sh", "_local_setup_util_sh.py", "setup.sh"];
+    let acceptable_difference_in_file = ["setup.sh"];
     for f in &acceptable_difference_in_file {
         if path == *f {
             return true;
@@ -588,11 +588,15 @@ pub fn compare_environment_variables(
     devros_binary: &Path,
 ) -> Result<Vec<EnvDifference>> {
     // Extract workspace directory from devros_install path (remove /install suffix)
-    let workspace_dir = devros_install.parent().ok_or_else(|| {
-        ComparisonError::Io(std::io::Error::other("Invalid devros_install path"))
-    })?;
+    let workspace_dir = devros_install
+        .parent()
+        .ok_or_else(|| ComparisonError::Io(std::io::Error::other("Invalid devros_install path")))?;
 
-    let colcon_env = get_environment(&format!("source {}/setup.bash", colcon_install), base_env, None)?;
+    let colcon_env = get_environment(
+        &format!("source {}/setup.bash", colcon_install),
+        base_env,
+        None,
+    )?;
     let devros_env = get_environment(
         &format!("eval \"$({} env shell)\"", devros_binary.display()),
         base_env,
