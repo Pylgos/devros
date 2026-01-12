@@ -587,10 +587,16 @@ pub fn compare_environment_variables(
     base_env: &std::collections::HashMap<String, String>,
     devros_binary: &Path,
 ) -> Result<Vec<EnvDifference>> {
-    let colcon_env = get_environment(&format!("source {}/setup.bash", colcon_install), base_env)?;
+    // Extract workspace directory from devros_install path (remove /install suffix)
+    let workspace_dir = devros_install.parent().ok_or_else(|| {
+        ComparisonError::Io(std::io::Error::other("Invalid devros_install path"))
+    })?;
+
+    let colcon_env = get_environment(&format!("source {}/setup.bash", colcon_install), base_env, None)?;
     let devros_env = get_environment(
         &format!("eval \"$({} env shell)\"", devros_binary.display()),
         base_env,
+        Some(workspace_dir.as_std_path()),
     )?;
 
     let mut differences = Vec::new();
@@ -611,6 +617,11 @@ pub fn compare_environment_variables(
 
         match (colcon_val, devros_val) {
             (Some(c), Some(d)) => {
+                // Skip variables that should be ignored
+                if should_skip_env_key(key) {
+                    continue;
+                }
+
                 // Normalize paths - replace install directory paths
                 let c_normalized =
                     normalize_paths(c, colcon_install.as_str(), devros_install.as_str());
@@ -621,11 +632,24 @@ pub fn compare_environment_variables(
                     // Check if the difference is only in build directory paths
                     let c_norm2 = c_normalized.replace("colcon_build", "build");
                     if c_norm2 != d_normalized {
-                        differences.push(EnvDifference::ValueDiffers {
-                            key: key.to_string(),
-                            colcon_value: c.clone(),
-                            devros_value: d.clone(),
-                        });
+                        // For path variables (colon-separated), compare as sets ignoring order
+                        if is_path_variable(key) {
+                            let c_parts: BTreeSet<&str> = c_norm2.split(':').collect();
+                            let d_parts: BTreeSet<&str> = d_normalized.split(':').collect();
+                            if c_parts != d_parts {
+                                differences.push(EnvDifference::ValueDiffers {
+                                    key: key.to_string(),
+                                    colcon_value: c.clone(),
+                                    devros_value: d.clone(),
+                                });
+                            }
+                        } else {
+                            differences.push(EnvDifference::ValueDiffers {
+                                key: key.to_string(),
+                                colcon_value: c.clone(),
+                                devros_value: d.clone(),
+                            });
+                        }
                     }
                 }
             }
@@ -696,15 +720,20 @@ impl std::fmt::Display for EnvDifference {
 fn get_environment(
     command: &str,
     base_env: &std::collections::HashMap<String, String>,
+    current_dir: Option<&Path>,
 ) -> Result<std::collections::HashMap<String, String>> {
     use std::process::Command;
 
     let cmd = format!("{} && env", command);
 
-    let output = Command::new("bash")
-        .args(["-c", &cmd])
-        .envs(base_env)
-        .output()?;
+    let mut command_builder = Command::new("bash");
+    command_builder.args(["-c", &cmd]).envs(base_env);
+
+    if let Some(dir) = current_dir {
+        command_builder.current_dir(dir);
+    }
+
+    let output = command_builder.output()?;
 
     if !output.status.success() {
         return Err(ComparisonError::Io(std::io::Error::other(format!(
@@ -730,6 +759,21 @@ fn normalize_paths(value: &str, source_path: &str, _target_path: &str) -> String
     value.replace(source_path, "{INSTALL_DIR}")
 }
 
+/// Check if a variable is a path variable (colon-separated list)
+fn is_path_variable(key: &str) -> bool {
+    matches!(
+        key,
+        "PATH"
+            | "LD_LIBRARY_PATH"
+            | "PYTHONPATH"
+            | "AMENT_PREFIX_PATH"
+            | "CMAKE_PREFIX_PATH"
+            | "PKG_CONFIG_PATH"
+            | "CPATH"
+            | "LIBRARY_PATH"
+    )
+}
+
 /// Check if an environment key should be skipped in comparison
 fn should_skip_env_key(key: &str) -> bool {
     // Skip shell-specific variables
@@ -741,7 +785,7 @@ fn should_skip_env_key(key: &str) -> bool {
         "PWD",
         "COLUMNS",
         "LINES",
-        "SHLVL",
+        "COLCON_PREFIX_PATH", // colcon-specific variable
     ];
 
     for skip in &skip_keys {

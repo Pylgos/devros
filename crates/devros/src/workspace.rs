@@ -210,8 +210,10 @@ fn compute_build_order(packages: &HashMap<String, Package>) -> Result<Vec<String
     let mut graph = DiGraph::<&str, ()>::new();
     let mut node_indices: HashMap<&str, _> = HashMap::new();
 
-    // Add nodes
-    for name in packages.keys() {
+    // Add nodes in alphabetical order to ensure stable build order for packages with no dependencies
+    let mut sorted_names: Vec<_> = packages.keys().collect();
+    sorted_names.sort();
+    for name in sorted_names {
         let idx = graph.add_node(name.as_str());
         node_indices.insert(name.as_str(), idx);
     }
@@ -225,7 +227,7 @@ fn compute_build_order(packages: &HashMap<String, Package>) -> Result<Vec<String
             if package_names.contains(&dep.to_string()) {
                 let dependency_idx = node_indices[dep];
                 // Add edge: dependency -> dependent (dependency must be built first)
-                graph.add_edge(dependency_idx, dependent_idx, ());
+                graph.update_edge(dependency_idx, dependent_idx, ());
             }
         }
     }

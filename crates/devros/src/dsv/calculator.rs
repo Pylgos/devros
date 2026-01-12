@@ -129,8 +129,11 @@ impl EnvCalculator {
         let current = self.env.get(variable).cloned().unwrap_or_default();
         let parts: Vec<&str> = current.split(':').filter(|s| !s.is_empty()).collect();
 
+        tracing::trace!("prepend_non_duplicate: {}={}, prepending: {}", variable, current, value);
+
         // Check if value already exists
         if parts.contains(&value) {
+            tracing::trace!("  Value already exists, skipping");
             return;
         }
 
@@ -141,6 +144,7 @@ impl EnvCalculator {
             format!("{}:{}", value, current)
         };
 
+        tracing::trace!("  New value: {}", new_value);
         self.env.insert(variable.to_string(), new_value);
     }
 
@@ -173,11 +177,24 @@ impl EnvCalculator {
             prefix.join(path)
         };
 
-        // Try with .dsv extension first
-        let dsv_path = if base_path.extension().is_some() {
-            base_path.clone()
-        } else {
-            base_path.with_extension("dsv")
+        // If the path points to a shell script (.sh, .bash, .zsh), look for corresponding .dsv file
+        let dsv_path = match base_path.extension() {
+            Some("sh") | Some("bash") | Some("zsh") => {
+                // Replace shell script extension with .dsv
+                base_path.with_extension("dsv")
+            }
+            Some("dsv") => {
+                // Already a .dsv file
+                base_path.clone()
+            }
+            Some(_) => {
+                // Other extension, skip
+                return Ok(());
+            }
+            None => {
+                // No extension, add .dsv
+                base_path.with_extension("dsv")
+            }
         };
 
         // Check for circular references
@@ -185,11 +202,14 @@ impl EnvCalculator {
             return Ok(());
         }
 
+        // Only process if the .dsv file exists
         if dsv_path.exists() {
             self.processed_sources.insert(dsv_path.clone());
             let dsv = DsvFile::parse(&dsv_path)?;
-            let dsv_prefix = dsv_path.parent().unwrap_or(prefix);
-            self.apply_dsv(&dsv, dsv_prefix)?;
+            // IMPORTANT: Use the same prefix for all nested DSV files
+            // This matches colcon's behavior where all DSV operations in a package
+            // are resolved relative to the package install root, not the DSV file location
+            self.apply_dsv(&dsv, prefix)?;
         }
 
         Ok(())
