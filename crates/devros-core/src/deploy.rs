@@ -17,6 +17,15 @@ use crate::config::{DeployTarget, LocalDeployConfig, RemoteDeployConfig};
 use crate::workspace::Workspace;
 use crate::{Error, Result};
 
+/// Python path patterns that indicate a build-specific absolute path
+/// that should be replaced with a portable shebang
+const PYTHON_BUILD_PATH_PATTERNS: &[&str] = &[
+    "/usr/bin/python",
+    "/bin/python",
+    "/.venv/",
+    "/venv/",
+];
+
 /// Deploy state for tracking changes between deployments
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployState {
@@ -255,12 +264,28 @@ impl<'a> DeployManager<'a> {
         let absolute_target = if link_target_utf8.is_absolute() {
             link_target_utf8.clone()
         } else {
-            src_path
-                .parent()
-                .unwrap_or(Utf8Path::new("/"))
-                .join(&link_target_utf8)
-                .canonicalize_utf8()
-                .unwrap_or(link_target_utf8.clone())
+            // Get the parent directory of the symlink
+            let parent = src_path.parent().ok_or_else(|| {
+                Error::deploy(
+                    format!("Cannot resolve relative symlink without parent directory: {}", src_path),
+                    "This is an unexpected path structure",
+                )
+            })?;
+
+            // Join with the relative target and try to canonicalize
+            match parent.join(&link_target_utf8).canonicalize_utf8() {
+                Ok(abs) => abs,
+                Err(e) => {
+                    // Canonicalization failed - log warning but continue with joined path
+                    tracing::warn!(
+                        src = %src_path,
+                        target = %link_target_utf8,
+                        error = %e,
+                        "Failed to canonicalize symlink target, using joined path"
+                    );
+                    parent.join(&link_target_utf8)
+                }
+            }
         };
 
         // Check if target is internal (within install_base) or external
@@ -341,7 +366,10 @@ impl<'a> DeployManager<'a> {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name.starts_with("python") {
                     let site_packages = Utf8PathBuf::try_from(path.join("site-packages"))
-                        .map_err(|e| Error::deploy(format!("Invalid path: {:?}", e), ""))?;
+                        .map_err(|e| Error::deploy(
+                            format!("Path is not valid UTF-8: {:?}", e),
+                            "Ensure all file paths contain only valid UTF-8 characters"
+                        ))?;
 
                     if site_packages.exists() {
                         self.freeze_site_packages(&site_packages)?;
@@ -368,7 +396,10 @@ impl<'a> DeployManager<'a> {
         for entry in std::fs::read_dir(site_packages)? {
             let entry = entry?;
             let path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(format!("Invalid path: {:?}", e), ""))?;
+                .map_err(|e| Error::deploy(
+                    format!("Path is not valid UTF-8: {:?}", e),
+                    "Ensure all file paths contain only valid UTF-8 characters"
+                ))?;
 
             if path.extension() == Some("egg-link") {
                 self.process_egg_link(&path, site_packages, &mut easy_install_entries)?;
@@ -420,18 +451,27 @@ impl<'a> DeployManager<'a> {
         // Get package name from egg-link filename
         let package_name = egg_link_path
             .file_stem()
-            .ok_or_else(|| Error::deploy("Invalid .egg-link filename", ""))?;
+            .ok_or_else(|| Error::deploy(
+                format!("Invalid .egg-link filename: {}", egg_link_path),
+                "Ensure .egg-link files have valid filenames with package names"
+            ))?;
 
         // Copy source directory contents to site-packages
         // For Python packages, we need to copy the actual package directories
         for entry in std::fs::read_dir(&source_dir)? {
             let entry = entry?;
             let entry_path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(format!("Invalid path: {:?}", e), ""))?;
+                .map_err(|e| Error::deploy(
+                    format!("Path is not valid UTF-8: {:?}", e),
+                    "Ensure all file paths contain only valid UTF-8 characters"
+                ))?;
 
             let name = entry_path
                 .file_name()
-                .ok_or_else(|| Error::deploy("Invalid path", ""))?;
+                .ok_or_else(|| Error::deploy(
+                    format!("Path has no filename component: {}", entry_path),
+                    "This is an unexpected filesystem state"
+                ))?;
 
             // Skip special directories and files
             if name.starts_with('.') || name == "build" || name.ends_with(".egg-info") {
@@ -453,7 +493,10 @@ impl<'a> DeployManager<'a> {
         for entry in std::fs::read_dir(&source_dir)? {
             let entry = entry?;
             let entry_path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(format!("Invalid path: {:?}", e), ""))?;
+                .map_err(|e| Error::deploy(
+                    format!("Path is not valid UTF-8: {:?}", e),
+                    "Ensure all file paths contain only valid UTF-8 characters"
+                ))?;
 
             if let Some(name) = entry_path.file_name() {
                 if name.ends_with(".egg-info") && entry_path.is_dir() {
@@ -530,7 +573,10 @@ impl<'a> DeployManager<'a> {
         for entry in std::fs::read_dir(bin_dir)? {
             let entry = entry?;
             let path = Utf8PathBuf::try_from(entry.path())
-                .map_err(|e| Error::deploy(format!("Invalid path: {:?}", e), ""))?;
+                .map_err(|e| Error::deploy(
+                    format!("Path is not valid UTF-8: {:?}", e),
+                    "Ensure all file paths contain only valid UTF-8 characters"
+                ))?;
 
             if path.is_file() {
                 self.fix_shebang(&path)?;
@@ -550,17 +596,17 @@ impl<'a> DeployManager<'a> {
         // Check if it's a Python script with absolute shebang
         if let Some(first_line) = content.lines().next() {
             if first_line.starts_with("#!") && first_line.contains("python") {
-                // Check if it's an absolute path to a specific Python
-                if first_line.contains("/usr/bin/python")
-                    || first_line.contains("/bin/python")
-                    || first_line.contains("/.venv/")
-                    || first_line.contains("/venv/")
-                {
-                    // Skip if it's already using env
-                    if first_line.contains("/usr/bin/env") {
-                        return Ok(());
-                    }
+                // Skip if it's already using env (portable)
+                if first_line.contains("/usr/bin/env") {
+                    return Ok(());
+                }
 
+                // Check if it's a build-specific absolute path that should be replaced
+                let should_fix = PYTHON_BUILD_PATH_PATTERNS
+                    .iter()
+                    .any(|pattern| first_line.contains(pattern));
+
+                if should_fix {
                     // Replace with portable shebang
                     let new_content = format!(
                         "#!/usr/bin/env python3\n{}",
@@ -579,9 +625,11 @@ impl<'a> DeployManager<'a> {
     /// Generate setup.bash and setup.sh scripts
     fn generate_setup_scripts(&self, staging_dir: &Utf8Path) -> Result<()> {
         // Generate setup.bash
+        // Note: This assumes 'devros' is available in PATH on the target system
         let setup_bash_content = r#"#!/bin/bash
 # Generated by devros
 # Source this file to set up the environment
+# Requires: devros command to be installed and available in PATH
 
 _DEVROS_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
@@ -598,10 +646,12 @@ eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
             std::fs::set_permissions(&setup_bash, perms)?;
         }
 
-        // Generate setup.sh (POSIX compatible)
+        // Generate setup.sh (POSIX compatible, but still uses bash for devros output)
+        // Note: While the script itself is POSIX sh, devros env shell generates bash-compatible output
         let setup_sh_content = r#"#!/bin/sh
 # Generated by devros
 # Source this file to set up the environment
+# Requires: devros command to be installed and available in PATH
 
 _DEVROS_SETUP_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
@@ -675,26 +725,21 @@ eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
             config.target_dir
         );
 
+        // Parse SSH target - handle optional port in format "user@host:port"
+        let (ssh_target, ssh_port) = parse_ssh_target(&config.target);
+
         // Build rsync command
         let mut cmd = Command::new("rsync");
-        cmd.args([
-            "-avz",
-            "--delete",
-            "--checksum",
-            &format!("{}/", staging_dir),
-            &format!("{}:{}/", config.target, config.target_dir),
-        ]);
+        cmd.args(["-avz", "--delete", "--checksum"]);
 
-        // Handle non-standard SSH port
-        if let Some((_, port)) = config.target.rsplit_once(':') {
-            if port.parse::<u16>().is_ok() {
-                // Extract user@host part
-                let host_part = config.target.rsplit_once(':').map(|(h, _)| h).unwrap_or(&config.target);
-                cmd.args(["-e", &format!("ssh -p {}", port)]);
-                cmd.arg(format!("{}/", staging_dir));
-                cmd.arg(format!("{}:{}/", host_part, config.target_dir));
-            }
+        // Add SSH port option if non-standard port is specified
+        if let Some(port) = ssh_port {
+            cmd.args(["-e", &format!("ssh -p {}", port)]);
         }
+
+        // Add source and destination
+        cmd.arg(format!("{}/", staging_dir));
+        cmd.arg(format!("{}:{}/", ssh_target, config.target_dir));
 
         tracing::debug!("Running: {:?}", cmd);
 
@@ -791,6 +836,23 @@ eval "$(devros env shell --prefix "$_DEVROS_SETUP_DIR" --shell bash)"
     }
 }
 
+/// Parse SSH target string to extract host and optional port
+///
+/// Supports formats:
+/// - "user@host" -> ("user@host", None)
+/// - "user@host:port" -> ("user@host", Some(port))
+fn parse_ssh_target(target: &str) -> (&str, Option<u16>) {
+    // Check if there's a colon that could indicate a port
+    // Format: user@host:port
+    if let Some((host_part, port_str)) = target.rsplit_once(':') {
+        // Only treat it as a port if it parses as a valid u16
+        if let Ok(port) = port_str.parse::<u16>() {
+            return (host_part, Some(port));
+        }
+    }
+    (target, None)
+}
+
 /// Calculate a relative path from `from` to `to`
 fn make_relative_path(from: &Utf8Path, to: &Utf8Path) -> Utf8PathBuf {
     // Simple implementation - find common prefix and build relative path
@@ -838,12 +900,15 @@ fn copy_dir_recursive(src: &Utf8Path, dst: &Utf8Path) -> Result<()> {
         let src_path = Utf8Path::from_path(entry.path()).ok_or_else(|| {
             Error::deploy(
                 format!("Path is not valid UTF-8: {:?}", entry.path()),
-                "",
+                "Ensure all file paths contain only valid UTF-8 characters",
             )
         })?;
 
         let rel_path = src_path.strip_prefix(src).map_err(|_| {
-            Error::deploy(format!("Failed to strip prefix from {}", src_path), "")
+            Error::deploy(
+                format!("Failed to strip source prefix from {}", src_path),
+                "This is an unexpected internal error",
+            )
         })?;
 
         let dst_path = dst.join(rel_path);
@@ -955,5 +1020,19 @@ mod tests {
         assert!(dst.join("subdir/file2.txt").exists());
         assert_eq!(fs::read_to_string(dst.join("file1.txt")).unwrap(), "content1");
         assert_eq!(fs::read_to_string(dst.join("subdir/file2.txt")).unwrap(), "content2");
+    }
+
+    #[test]
+    fn test_parse_ssh_target() {
+        // Standard format without port
+        assert_eq!(parse_ssh_target("user@host"), ("user@host", None));
+
+        // With port
+        assert_eq!(parse_ssh_target("user@host:22"), ("user@host", Some(22)));
+        assert_eq!(parse_ssh_target("admin@192.168.1.100:2222"), ("admin@192.168.1.100", Some(2222)));
+
+        // Edge cases
+        assert_eq!(parse_ssh_target("user@host:invalid"), ("user@host:invalid", None));
+        assert_eq!(parse_ssh_target("user@host:99999"), ("user@host:99999", None)); // Port out of range
     }
 }
