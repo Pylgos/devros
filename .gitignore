@@ -48,3 +48,4 @@ references/
 !.cache/*/.gitkeep
 
 .claude/settings.local.json
+_codeql*
