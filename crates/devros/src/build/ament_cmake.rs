@@ -4,7 +4,7 @@
 
 use camino::Utf8PathBuf;
 use std::collections::HashMap;
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::Result;
 use crate::dsv::write_colcon_marker_file;
@@ -31,10 +31,10 @@ pub struct AmentCmakeBuildOptions<'a> {
 
 impl AmentCmakeBuilder {
     /// Build an ament_cmake package
-    pub fn build(
+    pub async fn build(
         workspace: &Workspace,
         package: &Package,
-        options: &AmentCmakeBuildOptions,
+        options: &AmentCmakeBuildOptions<'_>,
     ) -> Result<()> {
         let build_dir = workspace.package_build_dir(&package.name);
         let install_dir = workspace.package_install_dir(&package.name);
@@ -57,7 +57,7 @@ impl AmentCmakeBuilder {
         let env = compute_build_environment(workspace, package)?;
 
         // Configure
-        Self::run_configure(&cmake_args, &env, &package.name, options.log_callback.clone())?;
+        Self::run_configure(&cmake_args, &env, &package.name, options.log_callback.clone()).await?;
 
         // Build with jobserver support
         Self::run_build(
@@ -67,10 +67,10 @@ impl AmentCmakeBuilder {
             options.jobserver,
             &package.name,
             options.log_callback.clone(),
-        )?;
+        ).await?;
 
         // Install
-        Self::run_install(&build_dir, &env, &package.name, options.log_callback.clone())?;
+        Self::run_install(&build_dir, &env, &package.name, options.log_callback.clone()).await?;
 
         // Generate colcon marker file for this package
         Self::generate_colcon_files(workspace, package)?;
@@ -110,7 +110,7 @@ impl AmentCmakeBuilder {
         cmake_args
     }
 
-    fn run_configure(
+    async fn run_configure(
         cmake_args: &[String],
         env: &HashMap<String, String>,
         package_name: &str,
@@ -120,10 +120,10 @@ impl AmentCmakeBuilder {
         let mut cmd = Command::new("cmake");
         cmd.args(cmake_args).envs(env);
 
-        run_command_with_logging(&mut cmd, package_name, "CMake configure", log_callback)
+        run_command_with_logging(&mut cmd, package_name, "CMake configure", log_callback).await
     }
 
-    fn run_build(
+    async fn run_build(
         build_dir: &Utf8PathBuf,
         env: &HashMap<String, String>,
         jobs: usize,
@@ -143,14 +143,14 @@ impl AmentCmakeBuilder {
 
         // Configure jobserver for the build command
         if let Some(js) = jobserver {
-            js.configure(&mut build_cmd);
+            js.configure(build_cmd.as_std_mut());
             tracing::debug!("Configured jobserver for cmake build");
         }
 
-        run_command_with_logging(&mut build_cmd, package_name, "CMake build", log_callback)
+        run_command_with_logging(&mut build_cmd, package_name, "CMake build", log_callback).await
     }
 
-    fn run_install(
+    async fn run_install(
         build_dir: &Utf8PathBuf,
         env: &HashMap<String, String>,
         package_name: &str,
@@ -164,7 +164,7 @@ impl AmentCmakeBuilder {
             .current_dir(build_dir)
             .envs(env);
 
-        run_command_with_logging(&mut cmd, package_name, "CMake install", log_callback)
+        run_command_with_logging(&mut cmd, package_name, "CMake install", log_callback).await
     }
 
     /// Generate colcon-compatible files for the package

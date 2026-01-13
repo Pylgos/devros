@@ -4,14 +4,14 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use std::collections::HashMap;
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::Result;
 use crate::dsv::{generate_ament_python_package_dsv, write_colcon_marker_file};
 use crate::package::Package;
 use crate::workspace::Workspace;
 
-use super::command_logger::{run_command_with_logging, LogCallback};
+use super::command_logger::{LogCallback, run_command_with_logging};
 use super::environment::compute_build_environment;
 
 /// Builder for ament_python packages
@@ -27,7 +27,7 @@ pub struct AmentPythonBuildOptions {
 
 impl AmentPythonBuilder {
     /// Build an ament_python package
-    pub fn build(
+    pub async fn build(
         workspace: &Workspace,
         package: &Package,
         options: &AmentPythonBuildOptions,
@@ -41,7 +41,7 @@ impl AmentPythonBuilder {
         std::fs::create_dir_all(&install_dir)?;
 
         // Get Python lib directory path
-        let python_lib_dir = get_python_lib_dir()?;
+        let python_lib_dir = get_python_lib_dir().await?;
         let python_lib_path = install_dir.join(&python_lib_dir);
         std::fs::create_dir_all(&python_lib_path)?;
 
@@ -82,7 +82,8 @@ impl AmentPythonBuilder {
                 source_dir,
                 &env,
                 options.log_callback.clone(),
-            )?;
+            )
+            .await?;
         } else {
             // Standard install mode
             Self::build_install(
@@ -92,7 +93,8 @@ impl AmentPythonBuilder {
                 source_dir,
                 &env,
                 options.log_callback.clone(),
-            )?;
+            )
+            .await?;
         }
 
         // Post-processing: ensure package.xml is installed
@@ -102,13 +104,14 @@ impl AmentPythonBuilder {
         ensure_ament_resource_index(package, &install_dir)?;
 
         // Generate colcon-compatible package.dsv and hook files
-        generate_python_package_environment_files(workspace, package, options.symlink_install)?;
+        generate_python_package_environment_files(workspace, package, options.symlink_install)
+            .await?;
 
         Ok(())
     }
 
     /// Build ament_python package using setup.py install (non-symlink mode)
-    fn build_install(
+    async fn build_install(
         package: &Package,
         build_dir: &Utf8PathBuf,
         install_dir: &Utf8PathBuf,
@@ -132,7 +135,13 @@ impl AmentPythonBuilder {
         .current_dir(source_dir)
         .envs(env);
 
-        run_command_with_logging(&mut cmd, &package.name, "setup.py egg_info", log_callback.clone())?;
+        run_command_with_logging(
+            &mut cmd,
+            &package.name,
+            "setup.py egg_info",
+            log_callback.clone(),
+        )
+        .await?;
 
         // Run build and install
         let build_base = build_dir.join("build");
@@ -158,11 +167,11 @@ impl AmentPythonBuilder {
         .current_dir(source_dir)
         .envs(env);
 
-        run_command_with_logging(&mut cmd, &package.name, "setup.py install", log_callback)
+        run_command_with_logging(&mut cmd, &package.name, "setup.py install", log_callback).await
     }
 
     /// Build ament_python package using setup.py develop (symlink mode)
-    fn build_develop(
+    async fn build_develop(
         package: &Package,
         build_dir: &Utf8PathBuf,
         install_dir: &Utf8PathBuf,
@@ -194,18 +203,19 @@ impl AmentPythonBuilder {
         .current_dir(build_dir)
         .envs(env);
 
-        run_command_with_logging(&mut cmd, &package.name, "setup.py develop", log_callback)
+        run_command_with_logging(&mut cmd, &package.name, "setup.py develop", log_callback).await
     }
 }
 
 /// Get Python version string (e.g., "3.12")
-fn get_python_version() -> Result<String> {
+async fn get_python_version() -> Result<String> {
     let output = Command::new("python3")
         .args([
             "-c",
             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
         ])
-        .output()?;
+        .output()
+        .await?;
 
     if !output.status.success() {
         return Err(crate::Error::build(
@@ -218,8 +228,8 @@ fn get_python_version() -> Result<String> {
 }
 
 /// Get Python lib directory (e.g., "lib/python3.12/site-packages")
-fn get_python_lib_dir() -> Result<String> {
-    let version = get_python_version()?;
+async fn get_python_lib_dir() -> Result<String> {
+    let version = get_python_version().await?;
     Ok(format!("lib/python{}/site-packages", version))
 }
 
@@ -347,7 +357,7 @@ fn ensure_ament_resource_index(package: &Package, install_dir: &Utf8PathBuf) -> 
 }
 
 /// Generate Python package environment files (hook files and package.dsv in colcon format)
-fn generate_python_package_environment_files(
+async fn generate_python_package_environment_files(
     workspace: &Workspace,
     package: &Package,
     symlink_install: bool,
@@ -359,7 +369,7 @@ fn generate_python_package_environment_files(
     std::fs::create_dir_all(&hook_dir)?;
 
     // Get Python lib directory
-    let python_lib_dir = get_python_lib_dir()?;
+    let python_lib_dir = get_python_lib_dir().await?;
 
     // Generate hook/ament_prefix_path.dsv
     std::fs::write(

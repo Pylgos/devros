@@ -4,8 +4,8 @@
 //! integrated with tracing for clean log output.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, time::Duration};
 
 /// Progress manager for parallel package builds
 #[derive(Clone)]
@@ -36,6 +36,8 @@ impl BuildProgress {
                 .progress_chars("#>-"),
         );
 
+        main_bar.enable_steady_tick(Duration::from_millis(100));
+
         Self {
             multi,
             bars: Arc::new(Mutex::new(HashMap::new())),
@@ -55,9 +57,10 @@ impl BuildProgress {
         );
         bar.set_message(format!("{} ({})", package_name, build_type));
 
-        if let Ok(mut bars) = self.bars.lock() {
-            bars.insert(package_name.to_string(), bar);
-        }
+        bar.enable_steady_tick(Duration::from_millis(100));
+
+        let mut bars = self.bars.lock().unwrap();
+        bars.insert(package_name.to_string(), bar);
     }
 
     /// Update the message for a package's progress bar
@@ -73,17 +76,16 @@ impl BuildProgress {
     ///
     /// Displays the latest log output from the build process
     pub fn update_package_log(&self, package_name: &str, log_line: &str) {
-        if let Ok(bars) = self.bars.lock() {
-            if let Some(bar) = bars.get(package_name) {
-                // Truncate long lines to fit in the terminal
-                let max_len = 80;
-                let truncated = if log_line.len() > max_len {
-                    format!("{}...", &log_line[..max_len])
-                } else {
-                    log_line.to_string()
-                };
-                bar.set_message(format!("{}: {}", package_name, truncated));
-            }
+        let bars = self.bars.lock().unwrap();
+        if let Some(bar) = bars.get(package_name) {
+            // Truncate long lines to fit in the terminal
+            let max_len = 80;
+            let truncated = if log_line.len() > max_len {
+                format!("{}...", &log_line[..max_len])
+            } else {
+                log_line.to_string()
+            };
+            bar.set_message(format!("{}: {}", package_name, truncated));
         }
     }
 
@@ -136,16 +138,5 @@ impl BuildProgress {
         F: FnOnce() -> R,
     {
         self.multi.suspend(f)
-    }
-}
-
-impl Drop for BuildProgress {
-    fn drop(&mut self) {
-        // Clear any remaining progress bars
-        if let Ok(mut bars) = self.bars.lock() {
-            for (_, bar) in bars.drain() {
-                bar.finish_and_clear();
-            }
-        }
     }
 }

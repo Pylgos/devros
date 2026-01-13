@@ -36,6 +36,11 @@ pub struct ParallelExecutor<'a> {
     jobs: usize,
     symlink_install: bool,
     force_rebuild: bool,
+
+    // Shared read-only data
+    config: Arc<crate::config::Config>,
+    packages: Arc<HashMap<String, Package>>,
+    build_order: Arc<Vec<String>>,
 }
 
 impl<'a> ParallelExecutor<'a> {
@@ -54,6 +59,9 @@ impl<'a> ParallelExecutor<'a> {
             jobs,
             symlink_install,
             force_rebuild,
+            config: Arc::new(workspace.config.clone()),
+            packages: Arc::new(workspace.packages.clone()),
+            build_order: Arc::new(workspace.build_order.clone()),
         }
     }
 
@@ -97,7 +105,7 @@ impl<'a> ParallelExecutor<'a> {
         }
 
         for pkg_name in &packages_to_build {
-            let pkg = self.workspace.packages.get(pkg_name).unwrap();
+            let pkg = self.packages.get(pkg_name).unwrap();
             for dep_name in pkg.build_order_dependencies() {
                 if package_set.contains(dep_name) {
                     in_degree.entry(pkg_name.clone()).and_modify(|d| *d += 1);
@@ -126,7 +134,7 @@ impl<'a> ParallelExecutor<'a> {
             // Schedule new jobs up to limit
             while active_jobs < self.jobs && !queue.is_empty() {
                 let pkg_name = queue.pop_front().unwrap();
-                let pkg = self.workspace.packages.get(&pkg_name).unwrap().clone();
+                let pkg = self.packages.get(&pkg_name).unwrap().clone();
 
                 // Collect dependency hashes available from this run
                 let dep_hashes: Vec<String> = pkg
@@ -134,18 +142,18 @@ impl<'a> ParallelExecutor<'a> {
                     .filter_map(|dep| package_hashes.get(dep).cloned())
                     .collect();
 
-                let ctx = BuildContext {
+                let ctx = Arc::new(BuildContext {
                     workspace_root: self.workspace.root.clone(),
-                    workspace_config: self.workspace.config.clone(),
-                    all_packages: self.workspace.packages.clone(),
-                    build_order: self.workspace.build_order.clone(),
+                    workspace_config: Arc::clone(&self.config),
+                    all_packages: Arc::clone(&self.packages),
+                    build_order: Arc::clone(&self.build_order),
                     symlink_install: self.symlink_install,
                     jobs: self.jobs,
                     jobserver: self.jobserver.clone(),
                     progress: progress.clone(),
-                    cache_manager: self.cache_manager.clone(),
+                    cache_manager: Arc::clone(&self.cache_manager),
                     force_rebuild: self.force_rebuild,
-                };
+                });
 
                 let tx = tx.clone();
                 active_jobs += 1;
@@ -224,9 +232,9 @@ impl<'a> ParallelExecutor<'a> {
 /// Context for building a single package
 struct BuildContext {
     workspace_root: camino::Utf8PathBuf,
-    workspace_config: crate::config::Config,
-    all_packages: HashMap<String, Package>,
-    build_order: Vec<String>,
+    workspace_config: Arc<crate::config::Config>,
+    all_packages: Arc<HashMap<String, Package>>,
+    build_order: Arc<Vec<String>>,
     symlink_install: bool,
     jobs: usize,
     jobserver: Option<jobserver::Client>,
@@ -235,7 +243,11 @@ struct BuildContext {
     force_rebuild: bool,
 }
 
-async fn build_task(ctx: BuildContext, package: Package, dep_hashes: Vec<String>) -> TaskResult {
+async fn build_task(
+    ctx: Arc<BuildContext>,
+    package: Package,
+    dep_hashes: Vec<String>,
+) -> TaskResult {
     // 1. Compute Hash
     let dep_hash_refs: Vec<&str> = dep_hashes.iter().map(|s| s.as_str()).collect();
     let current_hash = match compute_package_hash(&package.path, &dep_hash_refs) {
@@ -277,19 +289,13 @@ async fn build_task(ctx: BuildContext, package: Package, dep_hashes: Vec<String>
 
     let package_clone = package.clone();
 
-    let ctx_arc = Arc::new(ctx);
-
-    // Spawn blocking task for actual build
-    let build_result = tokio::task::spawn_blocking({
-        let ctx = Arc::clone(&ctx_arc);
-        move || build_package_sync(&ctx, &package_clone)
-    })
-    .await;
+    // Call async build
+    let build_result = build_package_async(&ctx, &package_clone).await;
 
     match build_result {
-        Ok(Ok(())) => {
+        Ok(()) => {
             // Mark success in cache
-            let mut cm = ctx_arc.cache_manager.lock().await;
+            let mut cm = ctx.cache_manager.lock().await;
             match cm.mark_success(&package.name, current_hash.clone()) {
                 Ok(_) => TaskResult::Built {
                     name: package.name,
@@ -301,26 +307,22 @@ async fn build_task(ctx: BuildContext, package: Package, dep_hashes: Vec<String>
                 },
             }
         }
-        Ok(Err(e)) => TaskResult::Failed {
-            name: package.name,
-            error: e.to_string(),
-        },
         Err(e) => TaskResult::Failed {
             name: package.name,
-            error: format!("Task panicked: {}", e),
+            error: e.to_string(),
         },
     }
 }
 
-/// Build a single package synchronously
+/// Build a single package asynchronously
 #[allow(clippy::too_many_arguments)]
-fn build_package_sync(ctx: &BuildContext, package: &Package) -> Result<()> {
+async fn build_package_async(ctx: &BuildContext, package: &Package) -> Result<()> {
     // Reconstruct workspace for this thread
     let workspace = Workspace {
         root: ctx.workspace_root.clone(),
-        config: ctx.workspace_config.clone(),
-        packages: ctx.all_packages.clone(),
-        build_order: ctx.build_order.clone(),
+        config: (*ctx.workspace_config).clone(),
+        packages: (*ctx.all_packages).clone(),
+        build_order: (*ctx.build_order).clone(),
     };
 
     let package_name = package.name.clone();
@@ -337,14 +339,14 @@ fn build_package_sync(ctx: &BuildContext, package: &Package) -> Result<()> {
                 jobserver: ctx.jobserver.as_ref(),
                 log_callback: Some(log_callback),
             };
-            AmentCmakeBuilder::build(&workspace, package, &options)
+            AmentCmakeBuilder::build(&workspace, package, &options).await
         }
         BuildType::AmentPython => {
             let options = AmentPythonBuildOptions {
                 symlink_install: ctx.symlink_install,
                 log_callback: Some(log_callback),
             };
-            AmentPythonBuilder::build(&workspace, package, &options)
+            AmentPythonBuilder::build(&workspace, package, &options).await
         }
         BuildType::Cmake => {
             tracing::warn!("cmake build not yet implemented for {}", package.name);
