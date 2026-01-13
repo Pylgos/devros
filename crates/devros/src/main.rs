@@ -1,9 +1,7 @@
 //! devros CLI - ROS 2 workflow management tool
 
 use clap::{Parser, Subcommand};
-use indicatif::{MultiProgress, ProgressDrawTarget};
 use miette::Result;
-use std::sync::OnceLock;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use devros::commands;

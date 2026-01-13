@@ -3,10 +3,10 @@
 //! This module provides parallel build execution that respects
 //! package dependencies, building independent packages concurrently.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{Mutex, Semaphore};
-use tokio::task::JoinSet;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 use crate::Result;
 use crate::cache::{CacheManager, compute_package_hash};
@@ -17,54 +17,21 @@ use super::ament_cmake::{AmentCmakeBuildOptions, AmentCmakeBuilder};
 use super::ament_python::{AmentPythonBuildOptions, AmentPythonBuilder};
 use super::progress::BuildProgress;
 
-/// State for tracking parallel build execution
-struct BuildState {
-    /// Packages that have completed building
-    completed: HashSet<String>,
-    /// Packages that have failed
-    failed: HashSet<String>,
-    /// Computed hashes for completed packages
-    hashes: HashMap<String, String>,
-}
-
-impl BuildState {
-    fn new() -> Self {
-        Self {
-            completed: HashSet::new(),
-            failed: HashSet::new(),
-            hashes: HashMap::new(),
-        }
-    }
-
-    /// Check if all dependencies of a package are completed
-    fn are_dependencies_ready(
-        &self,
-        package: &Package,
-        workspace_packages: &HashSet<String>,
-    ) -> bool {
-        for dep in package.build_order_dependencies() {
-            // Only check dependencies that are in the workspace
-            if workspace_packages.contains(dep) && !self.completed.contains(dep) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-/// Build result for a single package
+/// Result of a package build task
 #[derive(Debug)]
-pub enum PackageBuildResult {
+enum TaskResult {
+    /// Package was skipped (cache hit)
+    Skipped { name: String, hash: String },
     /// Package was built successfully
-    Built { hash: String },
+    Built { name: String, hash: String },
     /// Package build failed
-    Failed { error: String },
+    Failed { name: String, error: String },
 }
 
 /// Execute parallel builds for packages
 pub struct ParallelExecutor<'a> {
     workspace: &'a Workspace,
-    cache_manager: CacheManager,
+    cache_manager: Arc<Mutex<CacheManager>>,
     jobserver: Option<jobserver::Client>,
     jobs: usize,
     symlink_install: bool,
@@ -82,7 +49,7 @@ impl<'a> ParallelExecutor<'a> {
     ) -> Self {
         Self {
             workspace,
-            cache_manager: CacheManager::new(&workspace.state_dir()),
+            cache_manager: Arc::new(Mutex::new(CacheManager::new(&workspace.state_dir()))),
             jobserver,
             jobs,
             symlink_install,
@@ -99,8 +66,6 @@ impl<'a> ParallelExecutor<'a> {
         progress: &BuildProgress,
     ) -> Result<(Vec<String>, Vec<String>)> {
         // Create tokio runtime for async execution
-        // Limit worker threads based on the number of parallel package builds.
-        // Each package build spawns cmake/make processes which use multiple cores.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(self.jobs)
             .enable_all()
@@ -117,80 +82,58 @@ impl<'a> ParallelExecutor<'a> {
         packages_to_build: Vec<String>,
         progress: &BuildProgress,
     ) -> Result<(Vec<String>, Vec<String>)> {
-        let workspace_packages: HashSet<String> = self.workspace.packages.keys().cloned().collect();
-        let state = Arc::new(Mutex::new(BuildState::new()));
-        let semaphore = Arc::new(Semaphore::new(self.jobs));
-
-        let mut pending: HashSet<String> = packages_to_build.iter().cloned().collect();
         let mut built_packages = Vec::new();
         let mut skipped_packages = Vec::new();
-        let mut join_set: JoinSet<(String, PackageBuildResult)> = JoinSet::new();
+        // Hashes of packages completed in this run (built or skipped)
+        let mut package_hashes: HashMap<String, String> = HashMap::new();
 
-        loop {
-            // Check if we're done
-            if pending.is_empty() && join_set.is_empty() {
-                break;
-            }
+        // 1. Build Dependency Graph
+        let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        let package_set: HashSet<String> = packages_to_build.iter().cloned().collect();
 
-            // Find packages that are ready to build
-            let ready_packages: Vec<String> = {
-                let state_guard = state.lock().await;
-                pending
-                    .iter()
-                    .filter(|name| {
-                        if let Some(pkg) = self.workspace.packages.get(*name) {
-                            state_guard.are_dependencies_ready(pkg, &workspace_packages)
-                        } else {
-                            false
-                        }
-                    })
-                    .cloned()
-                    .collect()
-            };
+        for pkg_name in &packages_to_build {
+            in_degree.insert(pkg_name.clone(), 0);
+        }
 
-            // Start builds for ready packages
-            for package_name in ready_packages {
-                pending.remove(&package_name);
-
-                let package = match self.workspace.packages.get(&package_name) {
-                    Some(p) => p.clone(),
-                    None => continue,
-                };
-
-                // Compute hash for cache check
-                let dep_hashes: Vec<String> = {
-                    let state_guard = state.lock().await;
-                    package
-                        .build_order_dependencies()
-                        .filter_map(|dep| state_guard.hashes.get(dep).cloned())
-                        .collect()
-                };
-                let dep_hash_refs: Vec<&str> = dep_hashes.iter().map(|s| s.as_str()).collect();
-                let current_hash = compute_package_hash(&package.path, &dep_hash_refs)?;
-
-                // Check cache
-                if !self.force_rebuild
-                    && !self
-                        .cache_manager
-                        .needs_rebuild(&package.name, &current_hash)?
-                {
-                    tracing::info!("Skipping {} (up to date)", package.name);
-                    progress.skip_package(&package.name);
-
-                    let mut state_guard = state.lock().await;
-                    state_guard.completed.insert(package.name.clone());
-                    state_guard
-                        .hashes
-                        .insert(package.name.clone(), current_hash.clone());
-                    skipped_packages.push(package.name);
-                    continue;
+        for pkg_name in &packages_to_build {
+            let pkg = self.workspace.packages.get(pkg_name).unwrap();
+            for dep_name in pkg.build_order_dependencies() {
+                if package_set.contains(dep_name) {
+                    in_degree.entry(pkg_name.clone()).and_modify(|d| *d += 1);
+                    dependents
+                        .entry(dep_name.to_string())
+                        .or_default()
+                        .push(pkg_name.clone());
                 }
+            }
+        }
 
-                // Start building
-                progress.start_package(&package.name, &package.build_type.to_string());
-                tracing::info!("Building {} ({})", package.name, package.build_type);
+        // 2. Initialize Queue with packages that have 0 dependencies in the set
+        let mut queue: VecDeque<String> = VecDeque::new();
+        for pkg_name in &packages_to_build {
+            if *in_degree.get(pkg_name).unwrap() == 0 {
+                queue.push_back(pkg_name.clone());
+            }
+        }
 
-                // Create build context with all necessary data
+        // 3. Execution Loop
+        let (tx, mut rx) = mpsc::channel(self.jobs + 1);
+        let mut active_jobs = 0;
+        let mut remaining_packages = packages_to_build.len();
+
+        while remaining_packages > 0 {
+            // Schedule new jobs up to limit
+            while active_jobs < self.jobs && !queue.is_empty() {
+                let pkg_name = queue.pop_front().unwrap();
+                let pkg = self.workspace.packages.get(&pkg_name).unwrap().clone();
+
+                // Collect dependency hashes available from this run
+                let dep_hashes: Vec<String> = pkg
+                    .build_order_dependencies()
+                    .filter_map(|dep| package_hashes.get(dep).cloned())
+                    .collect();
+
                 let ctx = BuildContext {
                     workspace_root: self.workspace.root.clone(),
                     workspace_config: self.workspace.config.clone(),
@@ -200,76 +143,76 @@ impl<'a> ParallelExecutor<'a> {
                     jobs: self.jobs,
                     jobserver: self.jobserver.clone(),
                     progress: progress.clone(),
+                    cache_manager: self.cache_manager.clone(),
+                    force_rebuild: self.force_rebuild,
                 };
 
-                let state_clone = Arc::clone(&state);
-                let sem_clone = Arc::clone(&semaphore);
+                let tx = tx.clone();
+                active_jobs += 1;
 
-                join_set.spawn(async move {
-                    // Acquire semaphore permit - this should not fail as we own the semaphore
-                    let permit = match sem_clone.acquire().await {
-                        Ok(permit) => permit,
-                        Err(_) => {
-                            return (
-                                package.name,
-                                PackageBuildResult::Failed {
-                                    error: "Build scheduler semaphore was closed unexpectedly"
-                                        .to_string(),
-                                },
-                            );
-                        }
-                    };
-                    let _permit = permit;
-
-                    // Build the package
-                    let result = build_package_sync(&ctx, &package, current_hash.clone());
-
-                    // Update state
-                    let mut state_guard = state_clone.lock().await;
-                    match &result {
-                        PackageBuildResult::Built { hash } => {
-                            state_guard.completed.insert(package.name.clone());
-                            state_guard
-                                .hashes
-                                .insert(package.name.clone(), hash.clone());
-                        }
-                        PackageBuildResult::Failed { .. } => {
-                            state_guard.failed.insert(package.name.clone());
-                        }
-                    }
-
-                    (package.name, result)
+                tokio::spawn(async move {
+                    let result = build_task(ctx, pkg, dep_hashes).await;
+                    let _ = tx.send(result).await;
                 });
             }
 
-            // Wait for at least one task to complete
-            if let Some(result) = join_set.join_next().await {
+            // Check for deadlock
+            if active_jobs == 0 && remaining_packages > 0 {
+                return Err(crate::Error::build(
+                    "Build deadlocked: packages remain but none are ready to build.",
+                    "This indicates a circular dependency or a bug in dependency resolution.",
+                ));
+            }
+
+            // Wait for next completion
+            if let Some(result) = rx.recv().await {
+                active_jobs -= 1;
                 match result {
-                    Ok((package_name, PackageBuildResult::Built { hash })) => {
-                        progress.finish_package(&package_name);
-                        self.cache_manager.mark_success(&package_name, hash)?;
-                        built_packages.push(package_name);
+                    TaskResult::Built { name, hash } => {
+                        progress.finish_package(&name);
+                        built_packages.push(name.clone());
+                        package_hashes.insert(name.clone(), hash);
+
+                        // Unlock dependents
+                        if let Some(deps) = dependents.get(&name) {
+                            for dep in deps {
+                                if let Some(degree) = in_degree.get_mut(dep) {
+                                    *degree -= 1;
+                                    if *degree == 0 {
+                                        queue.push_back(dep.clone());
+                                    }
+                                }
+                            }
+                        }
+                        remaining_packages -= 1;
                     }
-                    Ok((package_name, PackageBuildResult::Failed { error })) => {
-                        progress.fail_package(&package_name, &error);
-                        // Cancel remaining builds by clearing pending
-                        pending.clear();
+                    TaskResult::Skipped { name, hash } => {
+                        skipped_packages.push(name.clone());
+                        package_hashes.insert(name.clone(), hash);
+
+                        // Unlock dependents (same as built)
+                        if let Some(deps) = dependents.get(&name) {
+                            for dep in deps {
+                                if let Some(degree) = in_degree.get_mut(dep) {
+                                    *degree -= 1;
+                                    if *degree == 0 {
+                                        queue.push_back(dep.clone());
+                                    }
+                                }
+                            }
+                        }
+                        remaining_packages -= 1;
+                    }
+                    TaskResult::Failed { name, error } => {
+                        progress.fail_package(&name, &error);
                         return Err(crate::Error::build(
-                            format!("Build failed for {}: {}", package_name, error),
+                            format!("Build failed for {}: {}", name, error),
                             "Check the build output for details",
                         ));
                     }
-                    Err(e) => {
-                        return Err(crate::Error::build(
-                            format!("Task panicked: {}", e),
-                            "This is likely a bug in devros",
-                        ));
-                    }
                 }
-            } else if !pending.is_empty() {
-                // No tasks completed but we have pending packages
-                // This means we're waiting for dependencies - yield to allow tasks to progress
-                tokio::task::yield_now().await;
+            } else {
+                break;
             }
         }
 
@@ -288,16 +231,91 @@ struct BuildContext {
     jobs: usize,
     jobserver: Option<jobserver::Client>,
     progress: BuildProgress,
+    cache_manager: Arc<Mutex<CacheManager>>,
+    force_rebuild: bool,
 }
 
-/// Build a single package synchronously (called from async context)
+async fn build_task(ctx: BuildContext, package: Package, dep_hashes: Vec<String>) -> TaskResult {
+    // 1. Compute Hash
+    let dep_hash_refs: Vec<&str> = dep_hashes.iter().map(|s| s.as_str()).collect();
+    let current_hash = match compute_package_hash(&package.path, &dep_hash_refs) {
+        Ok(h) => h,
+        Err(e) => {
+            return TaskResult::Failed {
+                name: package.name,
+                error: e.to_string(),
+            };
+        }
+    };
+
+    // 2. Check Cache
+    if !ctx.force_rebuild {
+        let mut cm = ctx.cache_manager.lock().await;
+        match cm.needs_rebuild(&package.name, &current_hash) {
+            Ok(false) => {
+                tracing::info!("Skipping {} (up to date)", package.name);
+                ctx.progress.skip_package(&package.name);
+                return TaskResult::Skipped {
+                    name: package.name,
+                    hash: current_hash,
+                };
+            }
+            Ok(true) => {} // Proceed to build
+            Err(e) => {
+                return TaskResult::Failed {
+                    name: package.name,
+                    error: e.to_string(),
+                };
+            }
+        }
+    }
+
+    // 3. Build
+    ctx.progress
+        .start_package(&package.name, &package.build_type.to_string());
+    tracing::info!("Building {} ({})", package.name, package.build_type);
+
+    let package_clone = package.clone();
+
+    let ctx_arc = Arc::new(ctx);
+
+    // Spawn blocking task for actual build
+    let build_result = tokio::task::spawn_blocking({
+        let ctx = Arc::clone(&ctx_arc);
+        move || build_package_sync(&ctx, &package_clone)
+    })
+    .await;
+
+    match build_result {
+        Ok(Ok(())) => {
+            // Mark success in cache
+            let mut cm = ctx_arc.cache_manager.lock().await;
+            match cm.mark_success(&package.name, current_hash.clone()) {
+                Ok(_) => TaskResult::Built {
+                    name: package.name,
+                    hash: current_hash,
+                },
+                Err(e) => TaskResult::Failed {
+                    name: package.name,
+                    error: e.to_string(),
+                },
+            }
+        }
+        Ok(Err(e)) => TaskResult::Failed {
+            name: package.name,
+            error: e.to_string(),
+        },
+        Err(e) => TaskResult::Failed {
+            name: package.name,
+            error: format!("Task panicked: {}", e),
+        },
+    }
+}
+
+/// Build a single package synchronously
 #[allow(clippy::too_many_arguments)]
-fn build_package_sync(
-    ctx: &BuildContext,
-    package: &Package,
-    current_hash: String,
-) -> PackageBuildResult {
-    // Create a full workspace with all packages for environment computation
+fn build_package_sync(ctx: &BuildContext, package: &Package) -> Result<()> {
+    // Reconstruct workspace for this thread
     let workspace = Workspace {
         root: ctx.workspace_root.clone(),
         config: ctx.workspace_config.clone(),
@@ -305,14 +323,13 @@ fn build_package_sync(
         build_order: ctx.build_order.clone(),
     };
 
-    // Create log callback that updates the progress bar
     let package_name = package.name.clone();
     let progress = ctx.progress.clone();
     let log_callback = Arc::new(move |line: &str| {
         progress.update_package_log(&package_name, line);
     });
 
-    let result = match package.build_type {
+    match package.build_type {
         BuildType::AmentCmake => {
             let options = AmentCmakeBuildOptions {
                 jobs: ctx.jobs,
@@ -337,12 +354,5 @@ fn build_package_sync(
             tracing::warn!("Unknown build type '{}' for {}, skipping", t, package.name);
             Ok(())
         }
-    };
-
-    match result {
-        Ok(()) => PackageBuildResult::Built { hash: current_hash },
-        Err(e) => PackageBuildResult::Failed {
-            error: e.to_string(),
-        },
     }
 }
