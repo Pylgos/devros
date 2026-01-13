@@ -129,7 +129,12 @@ impl EnvCalculator {
         let current = self.env.get(variable).cloned().unwrap_or_default();
         let parts: Vec<&str> = current.split(':').filter(|s| !s.is_empty()).collect();
 
-        tracing::trace!("prepend_non_duplicate: {}={}, prepending: {}", variable, current, value);
+        tracing::trace!(
+            "prepend_non_duplicate: {}={}, prepending: {}",
+            variable,
+            current,
+            value
+        );
 
         // Check if value already exists
         if parts.contains(&value) {

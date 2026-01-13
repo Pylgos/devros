@@ -42,3 +42,7 @@ similar = "2.7"
 
 # Jobserver (GNU Make protocol)
 jobserver = "0.1"
+
+# Progress bars
+indicatif = "0.18"
+tracing-indicatif = "0.3"

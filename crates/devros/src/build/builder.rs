@@ -5,21 +5,18 @@
 //! - Dispatches to appropriate build type handlers
 //! - Manages build cache for incremental builds
 //! - Generates workspace-level setup files (colcon-compatible)
-
-use std::collections::HashMap;
+//! - Supports parallel builds with progress display
 
 use crate::Result;
-use crate::cache::{CacheManager, compute_package_hash};
 use crate::dsv::{
     generate_colcon_install_layout, generate_local_setup_util_py,
     generate_workspace_local_setup_sh, generate_workspace_setup_bash, generate_workspace_setup_sh,
     generate_workspace_setup_zsh,
 };
-use crate::package::BuildType;
 use crate::workspace::Workspace;
 
-use super::ament_cmake::{AmentCmakeBuildOptions, AmentCmakeBuilder};
-use super::ament_python::{AmentPythonBuildOptions, AmentPythonBuilder};
+use super::parallel::ParallelExecutor;
+use super::progress::BuildProgress;
 
 /// Arguments for the build operation
 #[derive(Debug, Clone)]
@@ -60,7 +57,6 @@ pub struct BuildResult {
 /// Main builder for ROS 2 workspaces
 pub struct Builder<'a> {
     workspace: &'a Workspace,
-    cache_manager: CacheManager,
     /// Optional jobserver client for coordinating parallel builds
     jobserver: Option<jobserver::Client>,
 }
@@ -70,7 +66,6 @@ impl<'a> Builder<'a> {
     pub fn new(workspace: &'a Workspace) -> Self {
         Self {
             workspace,
-            cache_manager: CacheManager::new(&workspace.state_dir()),
             jobserver: None,
         }
     }
@@ -134,83 +129,23 @@ impl<'a> Builder<'a> {
             .jobs
             .unwrap_or_else(|| self.workspace.config.effective_jobs());
 
-        tracing::info!("Using {} parallel jobs", jobs);
+        tracing::info!("Using {} parallel jobs for package builds", jobs);
 
-        // Store computed hashes for dependency calculation
-        let mut package_hashes: HashMap<String, String> = HashMap::new();
-        let mut built_packages = Vec::new();
-        let mut skipped_packages = Vec::new();
+        // Create progress display
+        let mut progress = BuildProgress::new(packages_to_build.len());
 
-        // Build each package
-        for package_name in packages_to_build {
-            let package = self
-                .workspace
-                .packages
-                .get(&package_name)
-                .ok_or_else(|| crate::Error::package("Package not found", &package_name))?;
+        // Create parallel executor
+        let mut executor = ParallelExecutor::new(
+            self.workspace,
+            jobs,
+            args.symlink_install,
+            args.force_rebuild,
+            self.jobserver.take(),
+        );
 
-            // Compute hash for this package
-            let dep_hashes: Vec<&str> = package
-                .build_order_dependencies()
-                .filter_map(|dep| package_hashes.get(dep).map(|s| s.as_str()))
-                .collect();
-
-            let current_hash = compute_package_hash(&package.path, &dep_hashes)?;
-
-            // Check cache (unless force rebuild)
-            if !args.force_rebuild
-                && !self
-                    .cache_manager
-                    .needs_rebuild(&package.name, &current_hash)?
-            {
-                tracing::info!("Skipping {} (up to date)", package.name);
-                package_hashes.insert(package.name.clone(), current_hash);
-                skipped_packages.push(package_name);
-                continue;
-            }
-
-            tracing::info!("Building {} ({})", package.name, package.build_type);
-
-            let build_result = match package.build_type {
-                BuildType::AmentCmake => {
-                    let options = AmentCmakeBuildOptions {
-                        jobs,
-                        symlink_install: args.symlink_install,
-                        jobserver: self.jobserver.as_ref(),
-                    };
-                    AmentCmakeBuilder::build(self.workspace, package, &options)
-                }
-                BuildType::AmentPython => {
-                    let options = AmentPythonBuildOptions {
-                        symlink_install: args.symlink_install,
-                    };
-                    AmentPythonBuilder::build(self.workspace, package, &options)
-                }
-                BuildType::Cmake => {
-                    tracing::warn!("cmake build not yet implemented for {}", package.name);
-                    Ok(())
-                }
-                BuildType::Other(ref t) => {
-                    tracing::warn!("Unknown build type '{}' for {}, skipping", t, package.name);
-                    Ok(())
-                }
-            };
-
-            // Update cache based on result
-            match build_result {
-                Ok(()) => {
-                    self.cache_manager
-                        .mark_success(&package.name, current_hash.clone())?;
-                    package_hashes.insert(package.name.clone(), current_hash);
-                    built_packages.push(package_name);
-                }
-                Err(e) => {
-                    self.cache_manager
-                        .mark_failed(&package.name, current_hash)?;
-                    return Err(e);
-                }
-            }
-        }
+        // Execute parallel builds
+        let (built_packages, skipped_packages) =
+            executor.execute(packages_to_build, &mut progress)?;
 
         // Generate colcon-compatible workspace setup scripts
         self.generate_workspace_setup()?;

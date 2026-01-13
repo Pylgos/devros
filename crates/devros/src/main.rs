@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand};
 use miette::Result;
+use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use devros::commands;
@@ -39,11 +40,15 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Initialize tracing
+    // Initialize tracing with indicatif layer for progress bar support
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
+    // Create indicatif layer for progress bars
+    let indicatif_layer = IndicatifLayer::new();
+
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
+        .with(indicatif_layer)
         .with(filter)
         .init();
 
