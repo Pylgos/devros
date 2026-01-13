@@ -33,6 +33,13 @@ else
   echo "colcon-cmake already exists, skipping clone."
 fi
 
+# Clone colcon-library-path
+if [ ! -d "colcon-library-path" ]; then
+  git clone https://github.com/colcon/colcon-library-path.git colcon-library-path
+else
+  echo "colcon-library-path already exists, skipping clone."
+fi
+
 # Clone colcon-python-setup-py
 if [ ! -d "colcon-python-setup-py" ]; then
   git clone https://github.com/colcon/colcon-python-setup-py.git colcon-python-setup-py
