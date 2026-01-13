@@ -99,8 +99,10 @@ impl<'a> ParallelExecutor<'a> {
         progress: &mut BuildProgress,
     ) -> Result<(Vec<String>, Vec<String>)> {
         // Create tokio runtime for async execution
+        // Limit worker threads based on the number of parallel package builds.
+        // Each package build spawns cmake/make processes which use multiple cores.
         let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(self.jobs.min(4)) // Limit worker threads
+            .worker_threads(self.jobs)
             .enable_all()
             .build()
             .map_err(|e| {
@@ -203,8 +205,20 @@ impl<'a> ParallelExecutor<'a> {
                 let sem_clone = Arc::clone(&semaphore);
 
                 join_set.spawn(async move {
-                    // Acquire semaphore permit
-                    let _permit = sem_clone.acquire().await.expect("Semaphore closed");
+                    // Acquire semaphore permit - this should not fail as we own the semaphore
+                    let permit = match sem_clone.acquire().await {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            return (
+                                package.name,
+                                PackageBuildResult::Failed {
+                                    error: "Build scheduler semaphore was closed unexpectedly"
+                                        .to_string(),
+                                },
+                            );
+                        }
+                    };
+                    let _permit = permit;
 
                     // Build the package
                     let result = build_package_sync(&ctx, &package, current_hash.clone());
