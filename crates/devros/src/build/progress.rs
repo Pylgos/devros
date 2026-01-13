@@ -5,16 +5,18 @@
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Progress manager for parallel package builds
+#[derive(Clone)]
 pub struct BuildProgress {
     /// Multi-progress container for all progress bars
     multi: MultiProgress,
-    /// Active progress bars indexed by package name
-    bars: HashMap<String, ProgressBar>,
-    /// Completed packages count
-    completed: usize,
+    /// Active progress bars indexed by package name (shared across threads)
+    bars: Arc<Mutex<HashMap<String, ProgressBar>>>,
+    /// Completed packages count (shared across threads)
+    completed: Arc<Mutex<usize>>,
     /// Total packages count
     total: usize,
     /// Main progress bar showing overall progress
@@ -25,7 +27,13 @@ impl BuildProgress {
     /// Create a new build progress manager
     pub fn new(total: usize) -> Self {
         let multi = MultiProgress::new();
+        Self::new_with_multi_progress(total, multi)
+    }
 
+    /// Create a new build progress manager with a provided MultiProgress
+    ///
+    /// This is useful for integrating with tracing-indicatif
+    pub fn new_with_multi_progress(total: usize, multi: MultiProgress) -> Self {
         // Create main progress bar
         let main_bar = multi.add(ProgressBar::new(total as u64));
         main_bar.set_style(
@@ -38,15 +46,15 @@ impl BuildProgress {
 
         Self {
             multi,
-            bars: HashMap::new(),
-            completed: 0,
+            bars: Arc::new(Mutex::new(HashMap::new())),
+            completed: Arc::new(Mutex::new(0)),
             total,
             main_bar,
         }
     }
 
     /// Start building a package
-    pub fn start_package(&mut self, package_name: &str, build_type: &str) {
+    pub fn start_package(&self, package_name: &str, build_type: &str) {
         let bar = self.multi.add(ProgressBar::new_spinner());
         bar.set_style(
             ProgressStyle::default_spinner()
@@ -56,48 +64,84 @@ impl BuildProgress {
         bar.set_message(format!("{} ({})", package_name, build_type));
         bar.enable_steady_tick(Duration::from_millis(100));
 
-        self.bars.insert(package_name.to_string(), bar);
+        if let Ok(mut bars) = self.bars.lock() {
+            bars.insert(package_name.to_string(), bar);
+        }
     }
 
     /// Update the message for a package's progress bar
     pub fn update_package(&self, package_name: &str, message: &str) {
-        if let Some(bar) = self.bars.get(package_name) {
-            bar.set_message(format!("{}: {}", package_name, message));
+        if let Ok(bars) = self.bars.lock() {
+            if let Some(bar) = bars.get(package_name) {
+                bar.set_message(format!("{}: {}", package_name, message));
+            }
+        }
+    }
+
+    /// Update the log line for a package's progress bar
+    ///
+    /// Displays the latest log output from the build process
+    pub fn update_package_log(&self, package_name: &str, log_line: &str) {
+        if let Ok(bars) = self.bars.lock() {
+            if let Some(bar) = bars.get(package_name) {
+                // Truncate long lines to fit in the terminal
+                let max_len = 80;
+                let truncated = if log_line.len() > max_len {
+                    format!("{}...", &log_line[..max_len])
+                } else {
+                    log_line.to_string()
+                };
+                bar.set_message(format!("{}: {}", package_name, truncated));
+            }
         }
     }
 
     /// Mark a package as completed successfully
-    pub fn finish_package(&mut self, package_name: &str) {
-        if let Some(bar) = self.bars.remove(package_name) {
-            bar.finish_and_clear();
+    pub fn finish_package(&self, package_name: &str) {
+        if let Ok(mut bars) = self.bars.lock() {
+            if let Some(bar) = bars.remove(package_name) {
+                bar.finish_and_clear();
+            }
         }
-        self.completed += 1;
-        self.main_bar.set_position(self.completed as u64);
+        if let Ok(mut completed) = self.completed.lock() {
+            *completed += 1;
+            self.main_bar.set_position(*completed as u64);
+        }
     }
 
     /// Mark a package as skipped (cache hit)
-    pub fn skip_package(&mut self, _package_name: &str) {
+    pub fn skip_package(&self, _package_name: &str) {
         // Don't create a bar for skipped packages, just increment the counter
-        self.completed += 1;
-        self.main_bar.set_position(self.completed as u64);
+        if let Ok(mut completed) = self.completed.lock() {
+            *completed += 1;
+            self.main_bar.set_position(*completed as u64);
+        }
     }
 
     /// Mark a package as failed
-    pub fn fail_package(&mut self, package_name: &str, error: &str) {
-        if let Some(bar) = self.bars.remove(package_name) {
-            bar.abandon_with_message(format!("{}: FAILED - {}", package_name, error));
+    pub fn fail_package(&self, package_name: &str, error: &str) {
+        if let Ok(mut bars) = self.bars.lock() {
+            if let Some(bar) = bars.remove(package_name) {
+                bar.abandon_with_message(format!("{}: FAILED - {}", package_name, error));
+            }
         }
     }
 
     /// Finish all progress bars
     pub fn finish(&self) {
+        let completed = self.completed.lock().map(|c| *c).unwrap_or(0);
         self.main_bar
-            .finish_with_message(format!("Built {}/{} packages", self.completed, self.total));
+            .finish_with_message(format!("Built {}/{} packages", completed, self.total));
     }
 
     /// Get the multi-progress for integration with tracing
     pub fn multi_progress(&self) -> &MultiProgress {
         &self.multi
+    }
+
+    /// Get a cloned multi-progress for integration with tracing
+    pub fn multi_progress_clone(&self) -> MultiProgress {
+        self.multi.clone()
     }
 
     /// Suspend progress bars during a closure (for clean output)
@@ -112,8 +156,10 @@ impl BuildProgress {
 impl Drop for BuildProgress {
     fn drop(&mut self) {
         // Clear any remaining progress bars
-        for (_, bar) in self.bars.drain() {
-            bar.finish_and_clear();
+        if let Ok(mut bars) = self.bars.lock() {
+            for (_, bar) in bars.drain() {
+                bar.finish_and_clear();
+            }
         }
     }
 }

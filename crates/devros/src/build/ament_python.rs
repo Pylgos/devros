@@ -11,6 +11,7 @@ use crate::dsv::{generate_ament_python_package_dsv, write_colcon_marker_file};
 use crate::package::Package;
 use crate::workspace::Workspace;
 
+use super::command_logger::{run_command_with_logging, LogCallback};
 use super::environment::compute_build_environment;
 
 /// Builder for ament_python packages
@@ -20,6 +21,8 @@ pub struct AmentPythonBuilder;
 pub struct AmentPythonBuildOptions {
     /// Whether to use symlink install (develop mode)
     pub symlink_install: bool,
+    /// Optional callback for log lines
+    pub log_callback: Option<LogCallback>,
 }
 
 impl AmentPythonBuilder {
@@ -72,10 +75,24 @@ impl AmentPythonBuilder {
 
         if options.symlink_install {
             // Symlink install mode: use develop command
-            Self::build_develop(package, &build_dir, &install_dir, source_dir, &env)?;
+            Self::build_develop(
+                package,
+                &build_dir,
+                &install_dir,
+                source_dir,
+                &env,
+                options.log_callback.clone(),
+            )?;
         } else {
             // Standard install mode
-            Self::build_install(package, &build_dir, &install_dir, source_dir, &env)?;
+            Self::build_install(
+                package,
+                &build_dir,
+                &install_dir,
+                source_dir,
+                &env,
+                options.log_callback.clone(),
+            )?;
         }
 
         // Post-processing: ensure package.xml is installed
@@ -97,64 +114,51 @@ impl AmentPythonBuilder {
         install_dir: &Utf8PathBuf,
         source_dir: &Utf8Path,
         env: &HashMap<String, String>,
+        log_callback: Option<LogCallback>,
     ) -> Result<()> {
         // Run egg_info
         let egg_base = build_dir.to_string();
-        let status = Command::new("python3")
-            .args([
-                "-W",
-                "ignore:setup.py install is deprecated",
-                "-W",
-                "ignore:easy_install command is deprecated",
-                "setup.py",
-                "egg_info",
-                "--egg-base",
-                &egg_base,
-            ])
-            .current_dir(source_dir)
-            .envs(env)
-            .status()?;
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
+            "setup.py",
+            "egg_info",
+            "--egg-base",
+            &egg_base,
+        ])
+        .current_dir(source_dir)
+        .envs(env);
 
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("setup.py egg_info failed for {}", package.name),
-                "Check the setup.py output for errors",
-            ));
-        }
+        run_command_with_logging(&mut cmd, &package.name, "setup.py egg_info", log_callback.clone())?;
 
         // Run build and install
         let build_base = build_dir.join("build");
         let install_log = build_dir.join("install.log");
 
-        let status = Command::new("python3")
-            .args([
-                "-W",
-                "ignore:setup.py install is deprecated",
-                "-W",
-                "ignore:easy_install command is deprecated",
-                "setup.py",
-                "build",
-                "--build-base",
-                build_base.as_str(),
-                "install",
-                "--prefix",
-                install_dir.as_str(),
-                "--record",
-                install_log.as_str(),
-                "--single-version-externally-managed",
-            ])
-            .current_dir(source_dir)
-            .envs(env)
-            .status()?;
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
+            "setup.py",
+            "build",
+            "--build-base",
+            build_base.as_str(),
+            "install",
+            "--prefix",
+            install_dir.as_str(),
+            "--record",
+            install_log.as_str(),
+            "--single-version-externally-managed",
+        ])
+        .current_dir(source_dir)
+        .envs(env);
 
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("setup.py install failed for {}", package.name),
-                "Check the setup.py output for errors",
-            ));
-        }
-
-        Ok(())
+        run_command_with_logging(&mut cmd, &package.name, "setup.py install", log_callback)
     }
 
     /// Build ament_python package using setup.py develop (symlink mode)
@@ -164,6 +168,7 @@ impl AmentPythonBuilder {
         install_dir: &Utf8PathBuf,
         source_dir: &Utf8Path,
         env: &HashMap<String, String>,
+        log_callback: Option<LogCallback>,
     ) -> Result<()> {
         // Create symlinks from source to build directory
         create_python_build_symlinks(source_dir, build_dir)?;
@@ -171,33 +176,25 @@ impl AmentPythonBuilder {
         // Run develop command from build directory
         let build_base = build_dir.join("build");
 
-        let status = Command::new("python3")
-            .args([
-                "-W",
-                "ignore:setup.py install is deprecated",
-                "-W",
-                "ignore:easy_install command is deprecated",
-                "setup.py",
-                "develop",
-                "--prefix",
-                install_dir.as_str(),
-                "--build-directory",
-                build_base.as_str(),
-                "--editable",
-                "--no-deps",
-            ])
-            .current_dir(build_dir)
-            .envs(env)
-            .status()?;
+        let mut cmd = Command::new("python3");
+        cmd.args([
+            "-W",
+            "ignore:setup.py install is deprecated",
+            "-W",
+            "ignore:easy_install command is deprecated",
+            "setup.py",
+            "develop",
+            "--prefix",
+            install_dir.as_str(),
+            "--build-directory",
+            build_base.as_str(),
+            "--editable",
+            "--no-deps",
+        ])
+        .current_dir(build_dir)
+        .envs(env);
 
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("setup.py develop failed for {}", package.name),
-                "Check the setup.py output for errors",
-            ));
-        }
-
-        Ok(())
+        run_command_with_logging(&mut cmd, &package.name, "setup.py develop", log_callback)
     }
 }
 

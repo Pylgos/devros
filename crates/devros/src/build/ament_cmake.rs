@@ -11,6 +11,7 @@ use crate::dsv::write_colcon_marker_file;
 use crate::package::Package;
 use crate::workspace::Workspace;
 
+use super::command_logger::{run_command_with_logging, LogCallback};
 use super::environment::compute_build_environment;
 
 /// Builder for ament_cmake packages
@@ -24,6 +25,8 @@ pub struct AmentCmakeBuildOptions<'a> {
     pub symlink_install: bool,
     /// Optional jobserver client for coordinating parallel builds
     pub jobserver: Option<&'a jobserver::Client>,
+    /// Optional callback for log lines
+    pub log_callback: Option<LogCallback>,
 }
 
 impl AmentCmakeBuilder {
@@ -54,7 +57,7 @@ impl AmentCmakeBuilder {
         let env = compute_build_environment(workspace, package)?;
 
         // Configure
-        Self::run_configure(&cmake_args, &env, &package.name)?;
+        Self::run_configure(&cmake_args, &env, &package.name, options.log_callback.clone())?;
 
         // Build with jobserver support
         Self::run_build(
@@ -63,10 +66,11 @@ impl AmentCmakeBuilder {
             options.jobs,
             options.jobserver,
             &package.name,
+            options.log_callback.clone(),
         )?;
 
         // Install
-        Self::run_install(&build_dir, &env, &package.name)?;
+        Self::run_install(&build_dir, &env, &package.name, options.log_callback.clone())?;
 
         // Generate colcon marker file for this package
         Self::generate_colcon_files(workspace, package)?;
@@ -110,18 +114,13 @@ impl AmentCmakeBuilder {
         cmake_args: &[String],
         env: &HashMap<String, String>,
         package_name: &str,
+        log_callback: Option<LogCallback>,
     ) -> Result<()> {
         tracing::debug!("Running cmake configure: cmake {:?}", cmake_args);
-        let status = Command::new("cmake").args(cmake_args).envs(env).status()?;
+        let mut cmd = Command::new("cmake");
+        cmd.args(cmake_args).envs(env);
 
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("CMake configure failed for {}", package_name),
-                "Check the CMake output for errors",
-            ));
-        }
-
-        Ok(())
+        run_command_with_logging(&mut cmd, package_name, "CMake configure", log_callback)
     }
 
     fn run_build(
@@ -130,6 +129,7 @@ impl AmentCmakeBuilder {
         jobs: usize,
         jobserver: Option<&jobserver::Client>,
         package_name: &str,
+        log_callback: Option<LogCallback>,
     ) -> Result<()> {
         tracing::debug!("Running cmake build with {} jobs", jobs);
         let mut build_cmd = Command::new("cmake");
@@ -147,40 +147,24 @@ impl AmentCmakeBuilder {
             tracing::debug!("Configured jobserver for cmake build");
         }
 
-        let status = build_cmd.status()?;
-
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("CMake build failed for {}", package_name),
-                "Check the build output for errors",
-            ));
-        }
-
-        Ok(())
+        run_command_with_logging(&mut build_cmd, package_name, "CMake build", log_callback)
     }
 
     fn run_install(
         build_dir: &Utf8PathBuf,
         env: &HashMap<String, String>,
         package_name: &str,
+        log_callback: Option<LogCallback>,
     ) -> Result<()> {
         // Note: We must set current_dir to build_dir to ensure symlink_install_manifest.txt
         // is created in the build directory, not in the current working directory
         tracing::debug!("Running cmake install");
-        let status = Command::new("cmake")
-            .args(["--install", build_dir.as_str()])
+        let mut cmd = Command::new("cmake");
+        cmd.args(["--install", build_dir.as_str()])
             .current_dir(build_dir)
-            .envs(env)
-            .status()?;
+            .envs(env);
 
-        if !status.success() {
-            return Err(crate::Error::build(
-                format!("CMake install failed for {}", package_name),
-                "Check the install output for errors",
-            ));
-        }
-
-        Ok(())
+        run_command_with_logging(&mut cmd, package_name, "CMake install", log_callback)
     }
 
     /// Generate colcon-compatible files for the package

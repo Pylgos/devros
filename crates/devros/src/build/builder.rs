@@ -131,8 +131,9 @@ impl<'a> Builder<'a> {
 
         tracing::info!("Using {} parallel jobs for package builds", jobs);
 
-        // Create progress display
-        let mut progress = BuildProgress::new(packages_to_build.len());
+        // Create progress display using global MultiProgress
+        let multi = crate::get_multi_progress();
+        let progress = BuildProgress::new_with_multi_progress(packages_to_build.len(), multi.clone());
 
         // Create parallel executor
         let mut executor = ParallelExecutor::new(
@@ -145,7 +146,7 @@ impl<'a> Builder<'a> {
 
         // Execute parallel builds
         let (built_packages, skipped_packages) =
-            executor.execute(packages_to_build, &mut progress)?;
+            executor.execute(packages_to_build, &progress)?;
 
         // Generate colcon-compatible workspace setup scripts
         self.generate_workspace_setup()?;

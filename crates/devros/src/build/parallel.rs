@@ -96,7 +96,7 @@ impl<'a> ParallelExecutor<'a> {
     pub fn execute(
         &mut self,
         packages_to_build: Vec<String>,
-        progress: &mut BuildProgress,
+        progress: &BuildProgress,
     ) -> Result<(Vec<String>, Vec<String>)> {
         // Create tokio runtime for async execution
         // Limit worker threads based on the number of parallel package builds.
@@ -115,7 +115,7 @@ impl<'a> ParallelExecutor<'a> {
     async fn execute_async(
         &mut self,
         packages_to_build: Vec<String>,
-        progress: &mut BuildProgress,
+        progress: &BuildProgress,
     ) -> Result<(Vec<String>, Vec<String>)> {
         let workspace_packages: HashSet<String> = self.workspace.packages.keys().cloned().collect();
         let state = Arc::new(Mutex::new(BuildState::new()));
@@ -188,7 +188,7 @@ impl<'a> ParallelExecutor<'a> {
 
                 // Start building
                 progress.start_package(&package.name, &package.build_type.to_string());
-                tracing::info!("Building {} ({})", package.name, package.build_type);
+                tracing::debug!("Building {} ({})", package.name, package.build_type);
 
                 // Create build context with all necessary data
                 let ctx = BuildContext {
@@ -199,6 +199,7 @@ impl<'a> ParallelExecutor<'a> {
                     symlink_install: self.symlink_install,
                     jobs: self.jobs,
                     jobserver: self.jobserver.clone(),
+                    progress: progress.clone(),
                 };
 
                 let state_clone = Arc::clone(&state);
@@ -286,6 +287,7 @@ struct BuildContext {
     symlink_install: bool,
     jobs: usize,
     jobserver: Option<jobserver::Client>,
+    progress: BuildProgress,
 }
 
 /// Build a single package synchronously (called from async context)
@@ -303,18 +305,27 @@ fn build_package_sync(
         build_order: ctx.build_order.clone(),
     };
 
+    // Create log callback that updates the progress bar
+    let package_name = package.name.clone();
+    let progress = ctx.progress.clone();
+    let log_callback = Arc::new(move |line: &str| {
+        progress.update_package_log(&package_name, line);
+    });
+
     let result = match package.build_type {
         BuildType::AmentCmake => {
             let options = AmentCmakeBuildOptions {
                 jobs: ctx.jobs,
                 symlink_install: ctx.symlink_install,
                 jobserver: ctx.jobserver.as_ref(),
+                log_callback: Some(log_callback),
             };
             AmentCmakeBuilder::build(&workspace, package, &options)
         }
         BuildType::AmentPython => {
             let options = AmentPythonBuildOptions {
                 symlink_install: ctx.symlink_install,
+                log_callback: Some(log_callback),
             };
             AmentPythonBuilder::build(&workspace, package, &options)
         }

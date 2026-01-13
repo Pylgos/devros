@@ -9,6 +9,17 @@
 //! - Build cache management
 //! - Deployment and materialization
 
+use indicatif::MultiProgress;
+use std::sync::OnceLock;
+
+/// Global MultiProgress for coordinating progress bars and log output
+pub static MULTI_PROGRESS: OnceLock<MultiProgress> = OnceLock::new();
+
+/// Get or initialize the global MultiProgress
+pub fn get_multi_progress() -> &'static MultiProgress {
+    MULTI_PROGRESS.get_or_init(|| MultiProgress::new())
+}
+
 pub mod build;
 pub mod cache;
 pub mod commands;

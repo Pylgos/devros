@@ -1,10 +1,12 @@
 //! devros CLI - ROS 2 workflow management tool
 
 use clap::{Parser, Subcommand};
+use indicatif::MultiProgress;
 use miette::Result;
-use tracing_indicatif::IndicatifLayer;
+use std::sync::OnceLock;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+use devros::build::make_writer;
 use devros::commands;
 
 /// devros - ROS 2 workflow management tool
@@ -39,16 +41,26 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
-    // Initialize tracing with indicatif layer for progress bar support
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+/// Global MultiProgress for coordinating progress bars and log output
+pub static MULTI_PROGRESS: OnceLock<MultiProgress> = OnceLock::new();
 
-    // Create indicatif layer for progress bars
-    let indicatif_layer = IndicatifLayer::new();
+/// Get or initialize the global MultiProgress
+pub fn get_multi_progress() -> &'static MultiProgress {
+    MULTI_PROGRESS.get_or_init(|| MultiProgress::new())
+}
+
+fn main() -> Result<()> {
+    // Initialize global MultiProgress
+    let multi = get_multi_progress();
+
+    // Initialize tracing with custom writer that works with progress bars
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,build_output=warn"));
+
+    let writer = make_writer(multi.clone());
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
-        .with(indicatif_layer)
+        .with(fmt::layer().with_writer(writer))
         .with(filter)
         .init();
 
