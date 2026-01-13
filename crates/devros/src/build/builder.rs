@@ -133,7 +133,8 @@ impl<'a> Builder<'a> {
 
         // Create progress display using global MultiProgress
         let multi = crate::get_multi_progress();
-        let progress = BuildProgress::new_with_multi_progress(packages_to_build.len(), multi.clone());
+        let progress =
+            BuildProgress::new_with_multi_progress(packages_to_build.len(), multi.clone());
 
         // Create parallel executor
         let mut executor = ParallelExecutor::new(
@@ -145,8 +146,7 @@ impl<'a> Builder<'a> {
         );
 
         // Execute parallel builds
-        let (built_packages, skipped_packages) =
-            executor.execute(packages_to_build, &progress)?;
+        let (built_packages, skipped_packages) = executor.execute(packages_to_build, &progress)?;
 
         // Generate colcon-compatible workspace setup scripts
         self.generate_workspace_setup()?;
