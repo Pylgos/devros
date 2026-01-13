@@ -252,6 +252,31 @@ fn should_exclude(path: &str) -> bool {
         }
     }
 
+    // Exclude binary files in lib directories
+    // These include executables and shared libraries which will have different
+    // embedded paths (RPATH, debug info) when built against different install directories
+    if path.contains("/lib/") {
+        // Skip shared libraries (.so files)
+        if path.ends_with(".so") || path.contains(".so.") {
+            return true;
+        }
+        // Skip files in lib/pkg_name/pkg_name pattern (executables)
+        // This pattern matches: pkg/lib/pkg/executable where executable has no extension
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() >= 4 {
+            // Format: pkg_name/lib/pkg_name/executable
+            let pkg_name = parts[0];
+            if parts[1] == "lib" && parts[2] == pkg_name {
+                // This is likely an executable in lib/pkg_name/
+                // Executables typically have no extension
+                let file_name = parts.last().unwrap_or(&"");
+                if !file_name.contains('.') {
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 

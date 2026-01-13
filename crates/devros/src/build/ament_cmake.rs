@@ -11,7 +11,7 @@ use crate::dsv::write_colcon_marker_file;
 use crate::package::Package;
 use crate::workspace::Workspace;
 
-use super::command_logger::{run_command_with_logging, LogCallback};
+use super::command_logger::{LogCallback, run_command_with_logging};
 use super::environment::compute_build_environment;
 
 /// Builder for ament_cmake packages
@@ -57,7 +57,13 @@ impl AmentCmakeBuilder {
         let env = compute_build_environment(workspace, package)?;
 
         // Configure
-        Self::run_configure(&cmake_args, &env, &package.name, options.log_callback.clone()).await?;
+        Self::run_configure(
+            &cmake_args,
+            &env,
+            &package.name,
+            options.log_callback.clone(),
+        )
+        .await?;
 
         // Build with jobserver support
         Self::run_build(
@@ -67,10 +73,17 @@ impl AmentCmakeBuilder {
             options.jobserver,
             &package.name,
             options.log_callback.clone(),
-        ).await?;
+        )
+        .await?;
 
         // Install
-        Self::run_install(&build_dir, &env, &package.name, options.log_callback.clone()).await?;
+        Self::run_install(
+            &build_dir,
+            &env,
+            &package.name,
+            options.log_callback.clone(),
+        )
+        .await?;
 
         // Generate colcon marker file for this package
         Self::generate_colcon_files(workspace, package)?;
@@ -171,9 +184,10 @@ impl AmentCmakeBuilder {
     fn generate_colcon_files(workspace: &Workspace, package: &Package) -> Result<()> {
         let install_dir = workspace.package_install_dir(&package.name);
 
-        // Get all runtime dependencies (including system packages)
-        // The colcon marker file needs all dependencies, not just workspace packages
-        let run_deps: Vec<String> = package.run_dependencies().map(|s| s.to_string()).collect();
+        // Get all runtime dependencies and sort them alphabetically
+        // (colcon sorts dependencies alphabetically in the marker file)
+        let mut run_deps: Vec<String> = package.run_dependencies().map(|s| s.to_string()).collect();
+        run_deps.sort();
         let run_deps_refs: Vec<&str> = run_deps.iter().map(|s| s.as_str()).collect();
 
         // Write colcon marker file
@@ -183,13 +197,17 @@ impl AmentCmakeBuilder {
         // This is needed so CMake can find the package's config files
         Self::generate_cmake_prefix_path_hooks(&install_dir, &package.name)?;
 
+        // Generate ld_library_path hooks if the package has shared libraries
+        // This is needed so the shared libraries can be found at runtime
+        Self::generate_ld_library_path_hooks(&install_dir, &package.name)?;
+
         // For ament_cmake packages, ament_cmake generates local_setup.* files during CMake install
-        // We need to update package.dsv to also include cmake_prefix_path hooks
+        // We need to update package.dsv to also include hooks
         let share_dir = install_dir.join("share").join(&package.name);
         let package_dsv_path = share_dir.join("package.dsv");
 
-        // Generate/update package.dsv with cmake_prefix_path hooks
-        Self::update_package_dsv_with_cmake_hooks(&package_dsv_path, &package.name)?;
+        // Generate/update package.dsv with all hooks
+        Self::update_package_dsv_with_hooks(&package_dsv_path, &package.name, &install_dir)?;
 
         Ok(())
     }
@@ -221,10 +239,60 @@ _colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
         Ok(())
     }
 
-    /// Update package.dsv to include cmake_prefix_path hooks
-    fn update_package_dsv_with_cmake_hooks(
+    /// Generate ld_library_path hooks for packages with shared libraries
+    ///
+    /// This mimics colcon_library_path behavior: if the lib directory contains
+    /// any .so files, generate hooks to add it to LD_LIBRARY_PATH.
+    fn generate_ld_library_path_hooks(
+        install_dir: &camino::Utf8PathBuf,
+        package_name: &str,
+    ) -> Result<()> {
+        let lib_dir = install_dir.join("lib");
+
+        // Check if the lib directory contains any .so files
+        if !lib_dir.exists() {
+            return Ok(());
+        }
+
+        let has_shared_libs = std::fs::read_dir(&lib_dir)?
+            .filter_map(|e| e.ok())
+            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "so"));
+
+        if !has_shared_libs {
+            return Ok(());
+        }
+
+        let hook_dir = install_dir.join("share").join(package_name).join("hook");
+        std::fs::create_dir_all(&hook_dir)?;
+
+        // Generate hook/ld_library_path_lib.dsv
+        std::fs::write(
+            hook_dir.join("ld_library_path_lib.dsv"),
+            "prepend-non-duplicate;LD_LIBRARY_PATH;lib\n",
+        )?;
+
+        // Generate hook/ld_library_path_lib.sh (colcon-compatible)
+        std::fs::write(
+            hook_dir.join("ld_library_path_lib.sh"),
+            r#"# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value LD_LIBRARY_PATH "$COLCON_CURRENT_PREFIX/lib"
+"#,
+        )?;
+
+        tracing::debug!(
+            "Generated ld_library_path_lib hooks in {} for package {}",
+            hook_dir,
+            package_name
+        );
+        Ok(())
+    }
+
+    /// Update package.dsv to include all required hooks
+    fn update_package_dsv_with_hooks(
         package_dsv_path: &camino::Utf8PathBuf,
         package_name: &str,
+        install_dir: &camino::Utf8PathBuf,
     ) -> Result<()> {
         let share_dir = package_dsv_path.parent().unwrap();
         std::fs::create_dir_all(share_dir)?;
@@ -236,14 +304,13 @@ _colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
             String::new()
         };
 
-        // Check if cmake_prefix_path hooks are already included
+        let mut lines: Vec<String> = existing_content.lines().map(|s| s.to_string()).collect();
+        let mut modified = false;
+
+        // Check and add cmake_prefix_path hooks
         let cmake_hook_dsv = format!("source;share/{}/hook/cmake_prefix_path.dsv", package_name);
         let cmake_hook_sh = format!("source;share/{}/hook/cmake_prefix_path.sh", package_name);
 
-        let mut lines: Vec<String> = existing_content.lines().map(|s| s.to_string()).collect();
-
-        // Add cmake_prefix_path hooks at the beginning if not present
-        let mut modified = false;
         if !existing_content.contains(&cmake_hook_dsv) {
             lines.insert(0, cmake_hook_dsv);
             modified = true;
@@ -253,11 +320,34 @@ _colcon_prepend_unique_value CMAKE_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
             modified = true;
         }
 
+        // Check and add ld_library_path_lib hooks if the hook files exist
+        let hook_dir = install_dir.join("share").join(package_name).join("hook");
+        let ld_lib_dsv_path = hook_dir.join("ld_library_path_lib.dsv");
+        let ld_lib_sh_path = hook_dir.join("ld_library_path_lib.sh");
+
+        if ld_lib_dsv_path.exists() && ld_lib_sh_path.exists() {
+            let ld_hook_dsv = format!("source;share/{}/hook/ld_library_path_lib.dsv", package_name);
+            let ld_hook_sh = format!("source;share/{}/hook/ld_library_path_lib.sh", package_name);
+
+            if !existing_content.contains(&ld_hook_dsv) {
+                // Insert after cmake hooks (after position 2)
+                let insert_pos = std::cmp::min(2, lines.len());
+                lines.insert(insert_pos, ld_hook_dsv);
+                modified = true;
+            }
+            if !existing_content.contains(&ld_hook_sh) {
+                // Insert after the dsv entry
+                let insert_pos = std::cmp::min(3, lines.len());
+                lines.insert(insert_pos, ld_hook_sh);
+                modified = true;
+            }
+        }
+
         // Write back if modified
         if modified {
             let content = lines.join("\n") + "\n";
             std::fs::write(package_dsv_path, content)?;
-            tracing::debug!("Updated {} with cmake_prefix_path hooks", package_dsv_path);
+            tracing::debug!("Updated {} with hooks", package_dsv_path);
         }
 
         Ok(())
