@@ -89,42 +89,25 @@ fn create_mock_package(src_dir: &Path, name: &str) {
     fs::write(pkg_dir.join("package.xml"), package_xml).expect("Failed to write package.xml");
 
     // Create CMakeLists.txt with 4 custom targets that each run sleep
-    let cmakelists = format!(
+    let mut cmakelists = format!(
         r#"cmake_minimum_required(VERSION 3.5)
 project({name})
 
 find_package(ament_cmake REQUIRED)
 
-# 4 independent custom targets
-# Each runs sleep to simulate build time
-# Make will try to run these in parallel
-add_custom_target(target1 ALL
-    COMMAND ${{CMAKE_COMMAND}} -E echo "Building target1 in ${{PROJECT_NAME}}..."
-    COMMAND sleep 2
-    COMMAND ${{CMAKE_COMMAND}} -E echo "target1 complete"
-)
-
-add_custom_target(target2 ALL
-    COMMAND ${{CMAKE_COMMAND}} -E echo "Building target2 in ${{PROJECT_NAME}}..."
-    COMMAND sleep 2
-    COMMAND ${{CMAKE_COMMAND}} -E echo "target2 complete"
-)
-
-add_custom_target(target3 ALL
-    COMMAND ${{CMAKE_COMMAND}} -E echo "Building target3 in ${{PROJECT_NAME}}..."
-    COMMAND sleep 2
-    COMMAND ${{CMAKE_COMMAND}} -E echo "target3 complete"
-)
-
-add_custom_target(target4 ALL
-    COMMAND ${{CMAKE_COMMAND}} -E echo "Building target4 in ${{PROJECT_NAME}}..."
-    COMMAND sleep 2
-    COMMAND ${{CMAKE_COMMAND}} -E echo "target4 complete"
-)
-
-ament_package()
 "#
     );
+    for target in 1..=16 {
+        cmakelists.push_str(&format!(
+            r#"add_custom_target(target{target} ALL
+    COMMAND ${{CMAKE_COMMAND}} -E echo "Building target{target} in ${{PROJECT_NAME}}..."
+    COMMAND sleep 2
+    COMMAND ${{CMAKE_COMMAND}} -E echo "target{target} complete"
+)
+"#
+        ));
+    }
+    cmakelists.push_str("ament_package()\n");
     fs::write(pkg_dir.join("CMakeLists.txt"), cmakelists).expect("Failed to write CMakeLists.txt");
 }
 
