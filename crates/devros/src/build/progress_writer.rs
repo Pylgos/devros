@@ -5,7 +5,6 @@
 
 use indicatif::MultiProgress;
 use std::io::{self, Write};
-use std::sync::Arc;
 use tracing_subscriber::fmt::MakeWriter;
 
 /// Writer that suspends progress bars while writing logs
@@ -20,40 +19,35 @@ impl ProgressWriter {
     }
 }
 
-impl Write for ProgressWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // Suspend progress bars and write directly to stderr
-        self.multi.suspend(|| io::stderr().write(buf))
-    }
+impl MakeWriter<'_> for ProgressWriter {
+    type Writer = Self;
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.multi.suspend(|| io::stderr().flush())
-    }
-}
-
-/// MakeWriter implementation for ProgressWriter
-#[derive(Clone)]
-pub struct ProgressMakeWriter {
-    multi: Arc<MultiProgress>,
-}
-
-impl ProgressMakeWriter {
-    pub fn new(multi: MultiProgress) -> Self {
+    fn make_writer(&'_ self) -> Self::Writer {
         Self {
-            multi: Arc::new(multi),
+            multi: self.multi.clone(),
         }
     }
 }
 
-impl<'a> MakeWriter<'a> for ProgressMakeWriter {
-    type Writer = ProgressWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        ProgressWriter::new((*self.multi).clone())
+impl Write for ProgressWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // Suspend progress bars and write directly to stderr
+        self.multi.suspend(|| io::stderr().lock().write(buf))
     }
-}
 
-/// Make a writer factory for tracing that works with progress bars
-pub fn make_writer(multi: MultiProgress) -> ProgressMakeWriter {
-    ProgressMakeWriter::new(multi)
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    // fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+    //     self.multi.suspend(|| io::stderr().write_vectored(bufs))
+    // }
+
+    // fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    //     self.multi.suspend(|| io::stderr().write_all(buf))
+    // }
+
+    // fn write_fmt(&mut self, args: std::fmt::Arguments<'_>) -> io::Result<()> {
+    //     self.multi.suspend(|| io::stderr().write_fmt(args))
+    // }
 }

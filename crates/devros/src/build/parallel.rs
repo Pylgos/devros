@@ -188,7 +188,7 @@ impl<'a> ParallelExecutor<'a> {
 
                 // Start building
                 progress.start_package(&package.name, &package.build_type.to_string());
-                tracing::debug!("Building {} ({})", package.name, package.build_type);
+                tracing::info!("Building {} ({})", package.name, package.build_type);
 
                 // Create build context with all necessary data
                 let ctx = BuildContext {

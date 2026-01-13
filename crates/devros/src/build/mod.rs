@@ -23,4 +23,4 @@ pub use command_logger::run_command_with_logging;
 pub use environment::compute_build_environment;
 pub use parallel::ParallelExecutor;
 pub use progress::BuildProgress;
-pub use progress_writer::make_writer;
+pub use progress_writer::ProgressWriter;

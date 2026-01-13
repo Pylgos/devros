@@ -1,13 +1,13 @@
 //! devros CLI - ROS 2 workflow management tool
 
 use clap::{Parser, Subcommand};
-use indicatif::MultiProgress;
+use indicatif::{MultiProgress, ProgressDrawTarget};
 use miette::Result;
 use std::sync::OnceLock;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use devros::build::make_writer;
 use devros::commands;
+use devros::{build::ProgressWriter, get_multi_progress};
 
 /// devros - ROS 2 workflow management tool
 #[derive(Debug, Parser)]
@@ -41,14 +41,6 @@ enum Commands {
     },
 }
 
-/// Global MultiProgress for coordinating progress bars and log output
-pub static MULTI_PROGRESS: OnceLock<MultiProgress> = OnceLock::new();
-
-/// Get or initialize the global MultiProgress
-pub fn get_multi_progress() -> &'static MultiProgress {
-    MULTI_PROGRESS.get_or_init(|| MultiProgress::new())
-}
-
 fn main() -> Result<()> {
     // Initialize global MultiProgress
     let multi = get_multi_progress();
@@ -57,7 +49,7 @@ fn main() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,build_output=warn"));
 
-    let writer = make_writer(multi.clone());
+    let writer = ProgressWriter::new(multi.clone());
 
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(writer))

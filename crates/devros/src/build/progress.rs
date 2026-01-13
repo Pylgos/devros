@@ -6,7 +6,6 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 /// Progress manager for parallel package builds
 #[derive(Clone)]
@@ -24,12 +23,6 @@ pub struct BuildProgress {
 }
 
 impl BuildProgress {
-    /// Create a new build progress manager
-    pub fn new(total: usize) -> Self {
-        let multi = MultiProgress::new();
-        Self::new_with_multi_progress(total, multi)
-    }
-
     /// Create a new build progress manager with a provided MultiProgress
     ///
     /// This is useful for integrating with tracing-indicatif
@@ -42,7 +35,6 @@ impl BuildProgress {
                 .expect("Invalid progress template")
                 .progress_chars("#>-"),
         );
-        main_bar.enable_steady_tick(Duration::from_millis(100));
 
         Self {
             multi,
@@ -62,7 +54,6 @@ impl BuildProgress {
                 .expect("Invalid spinner template"),
         );
         bar.set_message(format!("{} ({})", package_name, build_type));
-        bar.enable_steady_tick(Duration::from_millis(100));
 
         if let Ok(mut bars) = self.bars.lock() {
             bars.insert(package_name.to_string(), bar);
@@ -137,11 +128,6 @@ impl BuildProgress {
     /// Get the multi-progress for integration with tracing
     pub fn multi_progress(&self) -> &MultiProgress {
         &self.multi
-    }
-
-    /// Get a cloned multi-progress for integration with tracing
-    pub fn multi_progress_clone(&self) -> MultiProgress {
-        self.multi.clone()
     }
 
     /// Suspend progress bars during a closure (for clean output)
