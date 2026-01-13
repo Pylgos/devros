@@ -4,3 +4,4 @@
 //! with colcon to ensure compatibility.
 
 pub mod colcon_compat;
+pub mod process_monitor;
