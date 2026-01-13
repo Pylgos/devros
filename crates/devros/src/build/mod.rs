@@ -5,13 +5,18 @@
 //! - Build type specific implementations (ament_cmake, ament_python)
 //! - Environment computation for builds
 //! - Cache integration for incremental builds
+//! - Parallel execution with progress display
 
 mod ament_cmake;
 mod ament_python;
 mod builder;
 mod environment;
+mod parallel;
+mod progress;
 
 pub use ament_cmake::AmentCmakeBuilder;
 pub use ament_python::AmentPythonBuilder;
 pub use builder::{BuildArgs, BuildResult, Builder};
 pub use environment::compute_build_environment;
+pub use parallel::ParallelExecutor;
+pub use progress::BuildProgress;

@@ -85,7 +85,10 @@ fn shell_command(workspace_root: &Utf8Path, args: ShellArgs) -> Result<()> {
         let workspace = Workspace::discover(workspace_root).into_diagnostic()?;
 
         tracing::debug!("Build order: {:?}", workspace.build_order);
-        tracing::debug!("Processing {} packages in build order", workspace.build_order.len());
+        tracing::debug!(
+            "Processing {} packages in build order",
+            workspace.build_order.len()
+        );
         for package_name in &workspace.build_order {
             let install_dir = workspace.package_install_dir(package_name);
             let dsv_path = install_dir
@@ -95,11 +98,17 @@ fn shell_command(workspace_root: &Utf8Path, args: ShellArgs) -> Result<()> {
 
             if dsv_path.exists() {
                 tracing::debug!("Processing package: {}", package_name);
-                tracing::debug!("  AMENT_PREFIX_PATH before: {:?}", calc.get("AMENT_PREFIX_PATH"));
+                tracing::debug!(
+                    "  AMENT_PREFIX_PATH before: {:?}",
+                    calc.get("AMENT_PREFIX_PATH")
+                );
                 if let Ok(dsv) = DsvFile::parse(&dsv_path) {
                     calc.apply_dsv(&dsv, &install_dir).into_diagnostic()?;
                 }
-                tracing::debug!("  AMENT_PREFIX_PATH after: {:?}", calc.get("AMENT_PREFIX_PATH"));
+                tracing::debug!(
+                    "  AMENT_PREFIX_PATH after: {:?}",
+                    calc.get("AMENT_PREFIX_PATH")
+                );
             }
         }
     }

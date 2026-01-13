@@ -46,5 +46,9 @@ chrono.workspace = true
 # Jobserver (GNU Make protocol)
 jobserver.workspace = true
 
+# Progress bars
+indicatif.workspace = true
+tracing-indicatif.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
