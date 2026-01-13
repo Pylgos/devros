@@ -95,6 +95,17 @@ impl<'a> ParallelExecutor<'a> {
         // Hashes of packages completed in this run (built or skipped)
         let mut package_hashes: HashMap<String, String> = HashMap::new();
 
+        // Capture makeflags from jobserver if available
+        let makeflags = if let Some(ref js) = self.jobserver {
+            capture_makeflags(js).await
+        } else {
+            None
+        };
+        
+        if let Some(ref flags) = makeflags {
+            tracing::debug!("Captured MAKEFLAGS from jobserver: {:?}", flags);
+        }
+
         // 1. Build Dependency Graph
         let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
         let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -150,6 +161,7 @@ impl<'a> ParallelExecutor<'a> {
                     symlink_install: self.symlink_install,
                     jobs: self.jobs,
                     jobserver: self.jobserver.clone(),
+                    makeflags: makeflags.clone(),
                     progress: progress.clone(),
                     cache_manager: Arc::clone(&self.cache_manager),
                     force_rebuild: self.force_rebuild,
@@ -238,6 +250,7 @@ struct BuildContext {
     symlink_install: bool,
     jobs: usize,
     jobserver: Option<jobserver::Client>,
+    makeflags: Option<Vec<String>>,
     progress: BuildProgress,
     cache_manager: Arc<Mutex<CacheManager>>,
     force_rebuild: bool,
@@ -314,6 +327,40 @@ async fn build_task(
     }
 }
 
+/// Capture MAKEFLAGS by running a dummy command with the jobserver configured
+async fn capture_makeflags(js: &jobserver::Client) -> Option<Vec<String>> {
+    let mut cmd = tokio::process::Command::new("env");
+    cmd.stdout(std::process::Stdio::piped());
+    
+    // Configure jobserver on the command
+    js.configure(cmd.as_std_mut());
+
+    match cmd.output().await {
+        Ok(output) if output.status.success() => {
+            let s = String::from_utf8_lossy(&output.stdout);
+            
+            // Try to find MAKEFLAGS first
+            for line in s.lines() {
+                if let Some(val) = line.strip_prefix("MAKEFLAGS=") {
+                    return Some(val.split_whitespace().map(|s| s.to_string()).collect());
+                }
+            }
+
+            // Fallback: CARGO_MAKEFLAGS
+            // The jobserver crate might set CARGO_MAKEFLAGS instead of MAKEFLAGS
+            // when running in a cargo environment context
+            for line in s.lines() {
+                if let Some(val) = line.strip_prefix("CARGO_MAKEFLAGS=") {
+                    return Some(val.split_whitespace().map(|s| s.to_string()).collect());
+                }
+            }
+
+            None
+        }
+        _ => None,
+    }
+}
+
 /// Build a single package asynchronously
 #[allow(clippy::too_many_arguments)]
 async fn build_package_async(ctx: &BuildContext, package: &Package) -> Result<()> {
@@ -337,6 +384,7 @@ async fn build_package_async(ctx: &BuildContext, package: &Package) -> Result<()
                 jobs: ctx.jobs,
                 symlink_install: ctx.symlink_install,
                 jobserver: ctx.jobserver.as_ref(),
+                make_args: ctx.makeflags.clone(),
                 log_callback: Some(log_callback),
             };
             AmentCmakeBuilder::build(&workspace, package, &options).await
