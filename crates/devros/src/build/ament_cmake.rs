@@ -146,27 +146,21 @@ impl AmentCmakeBuilder {
     ) -> Result<()> {
         tracing::debug!("Running cmake build with {} jobs", jobs);
         let mut build_cmd = Command::new("cmake");
-        build_cmd.args([
-            "--build",
-            build_dir.as_str(),
-        ]);
+        build_cmd.args(["--build", build_dir.as_str()]);
 
         // Only add explicit parallel limit if jobserver is NOT enabled.
         // If jobserver is enabled, cmake/make will inherit the jobserver via MAKEFLAGS.
         // Adding -jN explicitly would cause make to disable jobserver mode and use a local pool,
         // which leads to process explosion when multiple packages build in parallel.
         if jobserver.is_none() {
-            build_cmd.args([
-                "--parallel",
-                &jobs.to_string(),
-            ]);
+            build_cmd.args(["--parallel", &jobs.to_string()]);
         }
 
         build_cmd.envs(env);
 
         // Configure jobserver for the build command
         if let Some(js) = jobserver {
-            js.configure(build_cmd.as_std_mut());
+            js.configure_make(build_cmd.as_std_mut());
             tracing::debug!("Configured jobserver for cmake build");
         }
 
