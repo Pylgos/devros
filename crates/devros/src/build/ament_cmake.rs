@@ -25,8 +25,6 @@ pub struct AmentCmakeBuildOptions<'a> {
     pub symlink_install: bool,
     /// Optional jobserver client for coordinating parallel builds
     pub jobserver: Option<&'a jobserver::Client>,
-    /// Optional makeflags string to pass to the build tool (e.g. "-j --jobserver-auth=3,4")
-    pub make_args: Option<Vec<String>>,
     /// Optional callback for log lines
     pub log_callback: Option<LogCallback>,
 }
@@ -73,7 +71,6 @@ impl AmentCmakeBuilder {
             &env,
             options.jobs,
             options.jobserver,
-            options.make_args.as_ref(),
             &package.name,
             options.log_callback.clone(),
         )
@@ -144,7 +141,6 @@ impl AmentCmakeBuilder {
         env: &HashMap<String, String>,
         jobs: usize,
         jobserver: Option<&jobserver::Client>,
-        make_args: Option<&Vec<String>>,
         package_name: &str,
         log_callback: Option<LogCallback>,
     ) -> Result<()> {
@@ -172,15 +168,6 @@ impl AmentCmakeBuilder {
         if let Some(js) = jobserver {
             js.configure(build_cmd.as_std_mut());
             tracing::debug!("Configured jobserver for cmake build");
-        }
-
-        // If we have explicit make args (e.g. for jobserver on CMake 3.28+), pass them
-        if let Some(args) = make_args {
-            if !args.is_empty() {
-                build_cmd.arg("--");
-                build_cmd.args(args);
-                tracing::debug!("Passed explicit make args: {:?}", args);
-            }
         }
 
         run_command_with_logging(&mut build_cmd, package_name, "CMake build", log_callback).await
