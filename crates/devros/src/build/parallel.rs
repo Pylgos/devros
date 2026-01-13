@@ -2,6 +2,24 @@
 //!
 //! This module provides parallel build execution that respects
 //! package dependencies, building independent packages concurrently.
+//!
+//! ## Jobserver Integration
+//!
+//! When a jobserver is provided, this module acquires tokens from the jobserver
+//! before starting each package build. This ensures proper coordination of
+//! parallelism across both the package-level parallelism (multiple packages
+//! building simultaneously) and the make-level parallelism (multiple targets
+//! within a single package).
+//!
+//! Without proper jobserver token acquisition at the package level, process
+//! explosion can occur:
+//! - If N packages are building in parallel, each package's make process has
+//!   an implicit token (the ability to run one job without acquiring from jobserver)
+//! - Additionally, each make can acquire tokens from the jobserver for more jobs
+//! - This leads to N implicit tokens + jobserver tokens running simultaneously
+//!
+//! By acquiring a token before starting each package build, we ensure that the
+//! total number of parallel processes is bounded by the jobserver's token count.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -130,9 +148,38 @@ impl<'a> ParallelExecutor<'a> {
         let mut active_jobs = 0;
         let mut remaining_packages = packages_to_build.len();
 
+        // Clone jobserver for use in the loop
+        let jobserver = self.jobserver.clone();
+
         while remaining_packages > 0 {
             // Schedule new jobs up to limit
             while active_jobs < self.jobs && !queue.is_empty() {
+                // When jobserver is enabled, acquire a token before starting a package build.
+                // This token represents the "slot" for this package's build process.
+                // Each make process has an implicit token for itself, so by acquiring a token
+                // here, we limit the total number of parallel processes to roughly the jobserver
+                // token count.
+                //
+                // The token is held throughout the build and released when the task completes.
+                let _token = if let Some(ref js) = jobserver {
+                    // Use spawn_blocking because acquire() is a blocking call
+                    let js_clone = js.clone();
+                    let acquired = tokio::task::spawn_blocking(move || js_clone.acquire())
+                        .await
+                        .map_err(|e| {
+                            crate::Error::build(format!("Failed to spawn blocking task: {}", e), "")
+                        })?
+                        .map_err(|e| {
+                            crate::Error::build(
+                                format!("Failed to acquire jobserver token: {}", e),
+                                "",
+                            )
+                        })?;
+                    Some(acquired)
+                } else {
+                    None
+                };
+
                 let pkg_name = queue.pop_front().unwrap();
                 let pkg = self.packages.get(&pkg_name).unwrap().clone();
 
@@ -160,6 +207,9 @@ impl<'a> ParallelExecutor<'a> {
 
                 tokio::spawn(async move {
                     let result = build_task(ctx, pkg, dep_hashes).await;
+                    // `_token` is held for the duration of this task and automatically released
+                    // when this closure ends, returning it to the jobserver.
+                    let _ = &_token;
                     let _ = tx.send(result).await;
                 });
             }
