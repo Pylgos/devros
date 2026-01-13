@@ -142,7 +142,7 @@ impl<'a> Builder<'a> {
             jobs,
             args.symlink_install,
             args.force_rebuild,
-            self.jobserver.take(),
+            self.jobserver.clone(),
         );
 
         // Execute parallel builds

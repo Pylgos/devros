@@ -149,9 +149,19 @@ impl AmentCmakeBuilder {
         build_cmd.args([
             "--build",
             build_dir.as_str(),
-            "--parallel",
-            &jobs.to_string(),
         ]);
+
+        // Only add explicit parallel limit if jobserver is NOT enabled.
+        // If jobserver is enabled, cmake/make will inherit the jobserver via MAKEFLAGS.
+        // Adding -jN explicitly would cause make to disable jobserver mode and use a local pool,
+        // which leads to process explosion when multiple packages build in parallel.
+        if jobserver.is_none() {
+            build_cmd.args([
+                "--parallel",
+                &jobs.to_string(),
+            ]);
+        }
+
         build_cmd.envs(env);
 
         // Configure jobserver for the build command
