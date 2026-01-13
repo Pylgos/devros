@@ -306,18 +306,25 @@ _colcon_prepend_unique_value LD_LIBRARY_PATH "$COLCON_CURRENT_PREFIX/lib"
 
         let mut lines: Vec<String> = existing_content.lines().map(|s| s.to_string()).collect();
         let mut modified = false;
+        let mut next_insert_pos = 0;
 
         // Check and add cmake_prefix_path hooks
         let cmake_hook_dsv = format!("source;share/{}/hook/cmake_prefix_path.dsv", package_name);
         let cmake_hook_sh = format!("source;share/{}/hook/cmake_prefix_path.sh", package_name);
 
         if !existing_content.contains(&cmake_hook_dsv) {
-            lines.insert(0, cmake_hook_dsv);
+            lines.insert(next_insert_pos, cmake_hook_dsv);
+            next_insert_pos += 1;
             modified = true;
+        } else {
+            next_insert_pos += 1;
         }
         if !existing_content.contains(&cmake_hook_sh) {
-            lines.insert(1, cmake_hook_sh);
+            lines.insert(next_insert_pos, cmake_hook_sh);
+            next_insert_pos += 1;
             modified = true;
+        } else {
+            next_insert_pos += 1;
         }
 
         // Check and add ld_library_path_lib hooks if the hook files exist
@@ -330,15 +337,16 @@ _colcon_prepend_unique_value LD_LIBRARY_PATH "$COLCON_CURRENT_PREFIX/lib"
             let ld_hook_sh = format!("source;share/{}/hook/ld_library_path_lib.sh", package_name);
 
             if !existing_content.contains(&ld_hook_dsv) {
-                // Insert after cmake hooks (after position 2)
-                let insert_pos = std::cmp::min(2, lines.len());
-                lines.insert(insert_pos, ld_hook_dsv);
+                lines.insert(next_insert_pos, ld_hook_dsv);
+                next_insert_pos += 1;
                 modified = true;
             }
             if !existing_content.contains(&ld_hook_sh) {
-                // Insert after the dsv entry
-                let insert_pos = std::cmp::min(3, lines.len());
-                lines.insert(insert_pos, ld_hook_sh);
+                #[allow(unused_assignments)]
+                {
+                    lines.insert(next_insert_pos, ld_hook_sh);
+                    next_insert_pos += 1;
+                }
                 modified = true;
             }
         }
