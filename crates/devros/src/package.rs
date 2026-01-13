@@ -99,25 +99,49 @@ impl Package {
     pub fn from_str(content: &str, path: Utf8PathBuf) -> Result<Self> {
         let raw: RawPackageXml = from_str(content)?;
 
-        let build_type = raw
-            .export
-            .as_ref()
-            .and_then(|e| e.build_type.as_deref())
-            .map(BuildType::from)
-            .unwrap_or(BuildType::AmentCmake);
+        let mut name = String::new();
+        let mut version = String::new();
+        let mut description = None;
+        let mut build_type = BuildType::AmentCmake;
+        let mut build_depend = Vec::new();
+        let mut buildtool_depend = Vec::new();
+        let mut build_export_depend = Vec::new();
+        let mut exec_depend = Vec::new();
+        let mut test_depend = Vec::new();
+        let mut depend = Vec::new();
+
+        for item in raw.items {
+            match item {
+                PackageItem::Name(n) => name = n,
+                PackageItem::Version(v) => version = v,
+                PackageItem::Description(d) => description = Some(d),
+                PackageItem::BuildDepend(d) => build_depend.push(d),
+                PackageItem::BuildtoolDepend(d) => buildtool_depend.push(d),
+                PackageItem::BuildExportDepend(d) => build_export_depend.push(d),
+                PackageItem::ExecDepend(d) => exec_depend.push(d),
+                PackageItem::TestDepend(d) => test_depend.push(d),
+                PackageItem::Depend(d) => depend.push(d),
+                PackageItem::Export(e) => {
+                    if let Some(bt) = e.build_type {
+                        build_type = BuildType::from(bt.as_str());
+                    }
+                }
+                PackageItem::Other => {}
+            }
+        }
 
         Ok(Package {
-            name: raw.name,
-            version: raw.version,
-            description: raw.description,
+            name,
+            version,
+            description,
             build_type,
             path,
-            build_depend: extract_deps(&raw.build_depend),
-            buildtool_depend: extract_deps(&raw.buildtool_depend),
-            build_export_depend: extract_deps(&raw.build_export_depend),
-            exec_depend: extract_deps(&raw.exec_depend),
-            test_depend: extract_deps(&raw.test_depend),
-            depend: extract_deps(&raw.depend),
+            build_depend: extract_deps(&build_depend),
+            buildtool_depend: extract_deps(&buildtool_depend),
+            build_export_depend: extract_deps(&build_export_depend),
+            exec_depend: extract_deps(&exec_depend),
+            test_depend: extract_deps(&test_depend),
+            depend: extract_deps(&depend),
         })
     }
 
@@ -151,22 +175,25 @@ impl Package {
 /// Raw package.xml structure for deserialization
 #[derive(Debug, Deserialize)]
 struct RawPackageXml {
-    name: String,
-    version: String,
-    description: Option<String>,
-    #[serde(default)]
-    build_depend: Vec<Dependency>,
-    #[serde(default)]
-    buildtool_depend: Vec<Dependency>,
-    #[serde(default)]
-    build_export_depend: Vec<Dependency>,
-    #[serde(default)]
-    exec_depend: Vec<Dependency>,
-    #[serde(default)]
-    test_depend: Vec<Dependency>,
-    #[serde(default)]
-    depend: Vec<Dependency>,
-    export: Option<Export>,
+    #[serde(rename = "$value")]
+    items: Vec<PackageItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PackageItem {
+    Name(String),
+    Version(String),
+    Description(String),
+    BuildDepend(Dependency),
+    BuildtoolDepend(Dependency),
+    BuildExportDepend(Dependency),
+    ExecDepend(Dependency),
+    TestDepend(Dependency),
+    Depend(Dependency),
+    Export(Export),
+    #[serde(other)]
+    Other,
 }
 
 /// Dependency element
@@ -292,6 +319,50 @@ mod tests {
         assert!(deps.contains(&"dep_c"));
         assert!(deps.contains(&"dep_e"));
         assert!(!deps.contains(&"dep_d"));
+    }
+
+    #[test]
+    fn test_parse_real_package_xml() {
+        let xml = r#"<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>r2_mf_routeplan_interfaces</name>
+  <version>0.0.0</version>
+  <description>Interfaces for the R2 Multi-Frame Route Planning package.</description>
+  <maintainer email="mega33420@gmail.com">ubuntu</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+
+"#;
+
+        let package =
+            Package::from_str(xml, Utf8PathBuf::from("/r2_mf_routeplan_interfaces")).unwrap();
+
+        assert_eq!(package.name, "r2_mf_routeplan_interfaces");
+        assert_eq!(package.version, "0.0.0");
+        assert_eq!(
+            package.description.as_deref(),
+            Some("Interfaces for the R2 Multi-Frame Route Planning package.")
+        );
+        assert_eq!(package.build_type, BuildType::AmentCmake);
+        assert_eq!(
+            package.buildtool_depend,
+            vec!["ament_cmake", "rosidl_default_generators"]
+        );
+        assert_eq!(package.depend, vec!["rclcpp", "std_msgs"]);
+        assert_eq!(package.exec_depend, vec!["rosidl_default_runtime"]);
     }
 
     #[test]
